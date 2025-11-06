@@ -1,5 +1,5 @@
-<Seo canonical="https://autogradehq.com" />
-
+// src/components/Seo.tsx
+import Head from "next/head";
 
 type Props = {
   title?: string;
