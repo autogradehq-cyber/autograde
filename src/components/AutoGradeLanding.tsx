@@ -1,3 +1,6 @@
+
+"use client";
+
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
@@ -16,8 +19,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { trackEvent } from "@/lib/gtag"; // ✅ import GA helper
 
-// Category card data
+// ---------- Category card data ----------
 const categories: Array<{
   title: string;
   subtitle: string;
@@ -55,7 +59,7 @@ const categories: Array<{
   },
 ];
 
-// ---------- Small stat card component (typed) ----------
+// ---------- Small stat card component ----------
 type StatProps = {
   label: string;
   value: string | number | ReactNode;
@@ -72,7 +76,7 @@ function Stat({ label, value, sub }: StatProps) {
   );
 }
 
-// ---------- Affiliate click helper (typed) ----------
+// ---------- Affiliate click helper ----------
 type AffiliateLinkProps = {
   href: string;
   children: React.ReactNode;
@@ -82,7 +86,6 @@ type AffiliateLinkProps = {
 export function AffiliateLink({ href, children, sku, merchant }: AffiliateLinkProps) {
   const onClick = () => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).dataLayer = (window as any).dataLayer || [];
       (window as any).dataLayer.push({
         event: "affiliate_click",
@@ -109,7 +112,7 @@ export function AffiliateLink({ href, children, sku, merchant }: AffiliateLinkPr
   );
 }
 
-// ---------- JSON-LD helper (typed) ----------
+// ---------- JSON-LD helper ----------
 export function JsonLd({ data }: { data: unknown }) {
   return (
     <script
@@ -119,7 +122,7 @@ export function JsonLd({ data }: { data: unknown }) {
   );
 }
 
-// ---------- Price Alerts (typed) ----------
+// ---------- Price Alerts ----------
 type PriceStatus = "idle" | "loading" | "ok" | "error";
 
 export function PriceAlertForm() {
@@ -138,6 +141,14 @@ export function PriceAlertForm() {
         body: JSON.stringify({ email, category: "lighting" }),
       });
       setStatus(r.ok ? "ok" : "error");
+
+      // ✅ track successful lead submission
+      if (r.ok) {
+        trackEvent("generate_lead", {
+          form_id: "price_alert_form",
+          page_path: window.location.pathname,
+        });
+      }
     } catch {
       setStatus("error");
     }
@@ -180,8 +191,23 @@ export default function AutoGradeLanding() {
   const handleChange = (k: "year" | "make" | "model" | "trim", v: string) =>
     setForm((prev) => ({ ...prev, [k]: v }));
 
+  // ✅ updated onSubmit handler with GA4 tracking
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    // fire GA4 event when the form is submitted
+    trackEvent("cta_click", {
+      cta_name: "hero_get_recommendations",
+      page_path: window.location.pathname,
+      form_data: form,
+    });
+
+    // optional second event for GA4 conversions
+    trackEvent("generate_lead", {
+      form_id: "vehicle_form",
+      page_path: window.location.pathname,
+    });
+
     alert(`Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`);
   };
 
