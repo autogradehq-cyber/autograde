@@ -1,12 +1,11 @@
-
 // src/pages/_app.tsx
+
 import type { AppProps } from "next/app";
 import "@/styles/globals.css";
 import Script from "next/script";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
-
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID || "G-W1BZMF7XNP";
+import { GA_ID } from "@/lib/gtag";
 
 export default function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();

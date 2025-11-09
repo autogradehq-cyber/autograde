@@ -1,7 +1,6 @@
 // src/lib/gtag.ts
 
-export const GA_ID =
-  process.env.NEXT_PUBLIC_GA_ID || "G-W1BZMF7XNP";
+export const GA_ID = process.env.NEXT_PUBLIC_GA_ID || "G-W1BZMF7XNP";
 
 declare global {
   interface Window {
