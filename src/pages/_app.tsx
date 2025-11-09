@@ -12,11 +12,15 @@ export default function MyApp({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
     if (!GA_ID) return;
-    const handleRouteChange = (url: string) => {
-      // @ts-expect-error gtag is defined by GA script
-      window.gtag?.("event", "page_view", { page_location: url });
-    };
-    router.events.on("routeChangeComplete", handleRouteChange);
+ const handleRouteChange = (url: string) => {
+  if (typeof window === "undefined") return;
+  if (!window.gtag) return;
+
+  window.gtag("event", "page_view", {
+    page_location: url,
+  });
+};
+   router.events.on("routeChangeComplete", handleRouteChange);
     return () => router.events.off("routeChangeComplete", handleRouteChange);
   }, [router.events]);
 
