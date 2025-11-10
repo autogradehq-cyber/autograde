@@ -193,23 +193,31 @@ export default function AutoGradeLanding() {
 
   // ✅ updated onSubmit handler with GA4 tracking
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    // fire GA4 event when the form is submitted
-    trackEvent("cta_click", {
-      cta_name: "hero_get_recommendations",
-      page_path: window.location.pathname,
-      form_data: form,
-    });
+  // 1️⃣ Fire CTA click event (tracks engagement)
+  trackEvent("cta_click", {
+    cta_name: "hero_get_recommendations",
+    page_path: window.location.pathname,
+    form_data: form,
+    form_type: "recommendations",
+  });
 
-    // optional second event for GA4 conversions
-    trackEvent("generate_lead", {
-      form_id: "vehicle_form",
-      page_path: window.location.pathname,
-    });
+  // 2️⃣ Fire lead event with value (tracks conversions)
+  trackEvent("generate_lead", {
+    form_id: "vehicle_form",
+    form_type: "recommendations",
+    page_path: window.location.pathname,
+    value: 75, // estimated $75 per high-intent lead
+    currency: "USD",
+  });
 
-    alert(`Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`);
-  };
+  // 3️⃣ Keep existing user feedback
+  alert(
+    `Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`
+  );
+};
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
