@@ -1,14 +1,11 @@
-
 "use client";
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { motion } from "framer-motion";
 import {
-  CheckCircle2,
+  ShieldCheck,
   Car,
   Gauge,
-  ShieldCheck,
   Search,
   Sparkles,
   ArrowRight,
@@ -19,9 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { trackEvent } from "@/lib/gtag"; // ✅ import GA helper
+import { trackEvent } from "@/lib/gtag";
 
-// ---------- Category card data ----------
+// ---------- Category cards ----------
 const categories: Array<{
   title: string;
   subtitle: string;
@@ -59,7 +56,7 @@ const categories: Array<{
   },
 ];
 
-// ---------- Small stat card component ----------
+// ---------- Stat ----------
 type StatProps = {
   label: string;
   value: string | number | ReactNode;
@@ -76,14 +73,20 @@ function Stat({ label, value, sub }: StatProps) {
   );
 }
 
-// ---------- Affiliate click helper ----------
+// ---------- Affiliate link helper ----------
 type AffiliateLinkProps = {
   href: string;
   children: React.ReactNode;
   sku?: string;
   merchant?: string;
 };
-export function AffiliateLink({ href, children, sku, merchant }: AffiliateLinkProps) {
+
+export function AffiliateLink({
+  href,
+  children,
+  sku,
+  merchant,
+}: AffiliateLinkProps) {
   const onClick = () => {
     try {
       (window as any).dataLayer = (window as any).dataLayer || [];
@@ -140,13 +143,15 @@ export function PriceAlertForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, category: "lighting" }),
       });
+
       setStatus(r.ok ? "ok" : "error");
 
-      // ✅ track successful lead submission
       if (r.ok) {
+        // Softer-intent lead from alerts
         trackEvent("generate_lead", {
-          form_id: "price_alert_form",
-          page_path: window.location.pathname,
+          form_type: "price_alert",
+          value: 40,
+          currency: "USD",
         });
       }
     } catch {
@@ -179,78 +184,121 @@ export function PriceAlertForm() {
   );
 }
 
-// ---------- MAIN COMPONENT ----------
+// ---------- MAIN LANDING ----------
 export default function AutoGradeLanding() {
-  const [form, setForm] = useState<{ year: string; make: string; model: string; trim: string }>({
+  const [form, setForm] = useState<{
+    year: string;
+    make: string;
+    model: string;
+    trim: string;
+  }>({
     year: "",
     make: "",
     model: "",
     trim: "",
   });
 
-  const handleChange = (k: "year" | "make" | "model" | "trim", v: string) =>
+  const handleChange = (
+    k: "year" | "make" | "model" | "trim",
+    v: string
+  ) => {
     setForm((prev) => ({ ...prev, [k]: v }));
+  };
 
-  // ✅ updated onSubmit handler with GA4 tracking
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  // 1️⃣ Fire CTA click event (tracks engagement)
-  trackEvent("cta_click", {
-    cta_name: "hero_get_recommendations",
-    page_path: window.location.pathname,
-    form_data: form,
-    form_type: "recommendations",
-  });
+    // High-intent CTA click
+    trackEvent("cta_click", {
+      cta_name: "hero_get_recommendations",
+      page_path: window.location.pathname,
+      form_type: "recommendations",
+    });
 
-  // 2️⃣ Fire lead event with value (tracks conversions)
-  trackEvent("generate_lead", {
-    form_id: "vehicle_form",
-    form_type: "recommendations",
-    page_path: window.location.pathname,
-    value: 75, // estimated $75 per high-intent lead
-    currency: "USD",
-  });
+    // Qualified lead with value
+    trackEvent("generate_lead", {
+      form_id: "vehicle_form",
+      form_type: "recommendations",
+      page_path: window.location.pathname,
+      value: 75,
+      currency: "USD",
+    });
 
-  // 3️⃣ Keep existing user feedback
-  alert(
-    `Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`
-  );
-};
-
+    alert(
+      `Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* HEADER */}
       <header className="sticky top-0 z-40 backdrop-blur border-b border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <ShieldCheck className="text-cyan-300" />
             <span className="font-semibold text-lg">AutoGrade</span>
+            <Badge className="ml-2 bg-slate-900 text-cyan-300 border-slate-700 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Early access
+            </Badge>
           </div>
-          <Button className="bg-cyan-500 text-slate-900">Get Recommendations</Button>
+          <Button
+            className="bg-cyan-500 text-slate-900"
+            onClick={() => {
+              // Header CTA tracking
+              trackEvent("cta_click", {
+                cta_name: "header_get_recommendations",
+                page_path: window.location.pathname,
+                form_type: "recommendations",
+              });
+
+              const el = document.getElementById("vehicle-form");
+              if (el) {
+                el.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }
+            }}
+          >
+            Get Recommendations
+          </Button>
         </div>
       </header>
 
       {/* HERO */}
       <section className="max-w-6xl mx-auto px-4 py-16 grid md:grid-cols-2 gap-10">
+        {/* LEFT: Copy + Stats */}
         <div>
           <h1 className="text-4xl font-bold">
-            Find the right upgrade — <span className="text-cyan-300">the first time</span>
+            Data-backed upgrade picks for{" "}
+            <span className="text-cyan-300">your exact vehicle</span>
           </h1>
           <p className="mt-4 text-slate-300">
-            AutoGrade scores parts using fitment confidence, return risk, and real-world
-            performance so you upgrade with confidence.
+            AutoGrade analyzes fitment confidence, return risk, and real-world
+            performance so you only buy parts that fit, last, and actually
+            improve your drive.
+          </p>
+          <p className="mt-2 text-sm text-slate-400">
+            Built for online retailers, marketplaces, and serious DIY
+            enthusiasts.
           </p>
 
           <div className="mt-8 grid grid-cols-3 gap-6">
-            <Stat label="Fitment Confidence" value="98%" sub="top picks" />
-            <Stat label="Return Risk" value="Low" sub="based on velocity" />
-            <Stat label="Time to Decision" value="< 3 min" sub="AutoGrade Score™" />
+            <Stat label="Fitment Confidence" value="98%" sub="Top picks" />
+            <Stat
+              label="Return Risk"
+              value="Low"
+              sub="Based on real velocities"
+            />
+            <Stat
+              label="Time to Decision"
+              value="< 3 min"
+              sub="AutoGrade Score™"
+            />
           </div>
         </div>
 
-        {/* VEHICLE FORM */}
+        {/* RIGHT: Vehicle Form */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -258,11 +306,21 @@ export default function AutoGradeLanding() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3">
-              <Input placeholder="Year" onChange={(e) => handleChange("year", e.target.value)} />
-              <Input placeholder="Make" onChange={(e) => handleChange("make", e.target.value)} />
+            <form
+              id="vehicle-form"
+              onSubmit={onSubmit}
+              className="grid grid-cols-2 gap-3"
+            >
               <Input
-                placeholder="Model"
+                placeholder="Year (e.g. 2020)"
+                onChange={(e) => handleChange("year", e.target.value)}
+              />
+              <Input
+                placeholder="Make (e.g. Toyota)"
+                onChange={(e) => handleChange("make", e.target.value)}
+              />
+              <Input
+                placeholder="Model (e.g. Camry)"
                 className="col-span-2"
                 onChange={(e) => handleChange("model", e.target.value)}
               />
@@ -272,7 +330,10 @@ export default function AutoGradeLanding() {
                 onChange={(e) => handleChange("trim", e.target.value)}
               />
 
-              <Button type="submit" className="col-span-2 bg-cyan-500 text-slate-900">
+              <Button
+                type="submit"
+                className="col-span-2 bg-cyan-500 text-slate-900"
+              >
                 Get Recommendations <ArrowRight className="ml-1" />
               </Button>
             </form>
@@ -280,18 +341,64 @@ export default function AutoGradeLanding() {
         </Card>
       </section>
 
+      {/* CATEGORIES / DISCOVERY */}
+      <section className="max-w-6xl mx-auto px-4 pb-12 grid gap-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="w-4 h-4 text-cyan-300" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Live & Upcoming Coverage
+          </h2>
+        </div>
+        <div className="grid md:grid-cols-4 gap-4">
+          {categories.map((cat) => (
+            <Card
+              key={cat.title}
+              className="bg-slate-900/60 border-slate-800 hover:border-cyan-500/60 transition-colors"
+            >
+              <CardContent className="p-4 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-slate-200">
+                  {cat.icon}
+                  <span className="font-medium">{cat.title}</span>
+                </div>
+                <div className="text-xs text-slate-400">{cat.subtitle}</div>
+                <div className="mt-2">
+                  <Badge className="bg-slate-900/90 text-cyan-300 border-slate-700 text-[10px]">
+                    {cat.cta}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
       {/* PRICE ALERTS */}
-      <section id="alerts" className="border-t border-slate-800 py-12">
+      <section
+        id="alerts"
+        className="border-t border-slate-800 py-12 bg-slate-950/70"
+      >
         <div className="max-w-6xl mx-auto px-4 grid md:grid-cols-2 gap-10">
           <div>
-            <h3 className="text-2xl font-semibold">Never Overpay Again</h3>
+            <h3 className="text-2xl font-semibold">
+              Never overpay for upgrades again
+            </h3>
             <p className="mt-3 text-slate-300">
-              Enable price alerts for the exact parts that fit your vehicle.
+              Turn on price alerts for the exact parts that fit your vehicle.
+              AutoGrade watches real prices so you buy at the right time.
             </p>
             <PriceAlertForm />
           </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <span className="text-slate-400 text-sm">[Sparkline Chart Placeholder]</span>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between">
+            <span className="text-slate-400 text-sm mb-2">
+              Example signal: LED kit price vs. fitment score
+            </span>
+            <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">
+              [Sparkline / chart placeholder]
+            </div>
+            <p className="mt-3 text-[10px] text-slate-500">
+              AutoGrade ingests catalog, return, and review data to score parts
+              for your catalog or build.
+            </p>
           </div>
         </div>
       </section>
