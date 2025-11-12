@@ -205,29 +205,40 @@ export default function AutoGradeLanding() {
     setForm((prev) => ({ ...prev, [k]: v }));
   };
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
 
-    // High-intent CTA click
-    trackEvent("cta_click", {
-      cta_name: "hero_get_recommendations",
-      page_path: window.location.pathname,
-      form_type: "recommendations",
+  // Track CTA click
+  trackEvent("cta_click", {
+    cta_name: "hero_get_recommendations",
+    page_path: window.location.pathname,
+    form_type: "recommendations",
+  });
+
+  // Track lead with value
+  trackEvent("generate_lead", {
+    form_id: "vehicle_form",
+    form_type: "recommendations",
+    page_path: window.location.pathname,
+    value: 75,
+    currency: "USD",
+  });
+
+  // Send to backend for email notification
+  try {
+    await fetch("/api/vehicle-lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
     });
+  } catch (err) {
+    console.error("Failed to send vehicle lead", err);
+  }
 
-    // Qualified lead with value
-    trackEvent("generate_lead", {
-      form_id: "vehicle_form",
-      form_type: "recommendations",
-      page_path: window.location.pathname,
-      value: 75,
-      currency: "USD",
-    });
-
-    alert(
-      `Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`
-    );
-  };
+  alert(
+    `Searching upgrades for ${form.year} ${form.make} ${form.model} ${form.trim}`
+  );
+};
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">

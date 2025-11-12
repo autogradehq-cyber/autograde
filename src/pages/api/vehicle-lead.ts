@@ -17,15 +17,15 @@ export default async function handler(
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { email, category } = req.body || {};
+  const { year, make, model, trim } = req.body || {};
 
-  if (!email) {
-    return res.status(400).json({ ok: false, error: "Missing email" });
+  // Not hard-failing on missing fields, but you can tighten this later.
+  if (!year || !make || !model) {
+    console.warn("Vehicle lead missing some fields:", { year, make, model, trim });
   }
 
-  // If email config is missing, don't block UX — just log.
   if (!apiKey || !toEmail || !fromEmail) {
-    console.error("Price alerts: missing SendGrid env vars");
+    console.error("Vehicle lead: missing SendGrid env vars");
     return res.status(200).json({ ok: true });
   }
 
@@ -33,17 +33,21 @@ export default async function handler(
     await sendgrid.send({
       to: toEmail,
       from: fromEmail,
-      subject: "New AutoGrade price alert signup",
-      text: `New price alert lead:
-Email: ${email}
-Category: ${category || "lighting"}
+      subject: "New AutoGrade vehicle recommendations lead",
+      text: `New high-intent lead:
+
+Year:  ${year || "(not provided)"}
+Make:  ${make || "(not provided)"}
+Model: ${model || "(not provided)"}
+Trim:  ${trim || "(not provided)"}
+
 Time: ${new Date().toISOString()}
 `,
     });
 
     return res.status(200).json({ ok: true });
   } catch (error) {
-    console.error("SendGrid error (price alerts):", error);
+    console.error("SendGrid error (vehicle lead):", error);
     return res.status(500).json({ ok: false, error: "Failed to send email" });
   }
 }
