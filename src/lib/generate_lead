@@ -1,0 +1,34 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { trackEvent } from "@/lib/gtag";
+
+export function LeadForm() {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+
+    // your existing submit logic here:
+    // await fetch("/api/lead", { ... });
+
+    // fire GA4 event AFTER successful submit
+    trackEvent("generate_lead", {
+      form_id: "lead_form",
+      page_path: window.location.pathname,
+    });
+
+    setSubmitting(false);
+  };
+
+  return (
+    <form id="lead_form" onSubmit={handleSubmit}>
+      {/* fields */}
+      <button type="submit" disabled={submitting}>
+        Submit
+      </button>
+    </form>
+  );
+}

@@ -1,0 +1,40 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { trackEvent } from "@/lib/gtag";
+
+export function PricingSection() {
+  const ref = useRef<HTMLElement | null>(null);
+  const hasFired = useRef(false);
+
+  useEffect(() => {
+    if (!ref.current || hasFired.current) return;
+
+    const el = ref.current;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!hasFired.current && entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            hasFired.current = true;
+            trackEvent("pricing_view", {
+              section: "pricing",
+              page_path: window.location.pathname,
+            });
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: [0.5] }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <section id="pricing" ref={ref}>
+      {/* your pricing UI */}
+    </section>
+  );
+}

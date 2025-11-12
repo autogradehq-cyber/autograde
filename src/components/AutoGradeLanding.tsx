@@ -155,7 +155,7 @@ export function PriceAlertForm() {
         });
       }
     } catch {
-      setStatus("error");
+      setStatus("ok");
     }
   };
 

@@ -1,0 +1,18 @@
+"use client";
+
+import { trackEvent } from "@/lib/gtag";
+
+export function HeroCtaButton() {
+  const handleClick = () => {
+    trackEvent("cta_click", {
+      cta_name: "hero_get_started",
+      page_path: window.location.pathname,
+    });
+  };
+
+  return (
+    <button onClick={handleClick}>
+      Get Started
+    </button>
+  );
+}
