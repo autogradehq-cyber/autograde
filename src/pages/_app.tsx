@@ -1,53 +1,30 @@
-// src/pages/_app.tsx
+// FILE: src/pages/_app.tsx
+// Next.js Pages Router + GA4 using next/script
 
 import type { AppProps } from "next/app";
-import "@/styles/globals.css";
 import Script from "next/script";
-import { useRouter } from "next/router";
-import { useEffect } from "react";
-import { GA_ID } from "@/lib/gtag";
+import "../styles/globals.css";
 
 export default function MyApp({ Component, pageProps }: AppProps) {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!GA_ID) return;
-
-    const handleRouteChange = (url: string) => {
-      if (typeof window === "undefined") return;
-      if (!window.gtag) return;
-
-      window.gtag("event", "page_view", {
-        page_location: url,
-      });
-    };
-
-    router.events.on("routeChangeComplete", handleRouteChange);
-    return () => {
-      router.events.off("routeChangeComplete", handleRouteChange);
-    };
-  }, [router.events]);
-
   return (
     <>
-      {GA_ID && (
-        <>
-          <Script
-            src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-            strategy="afterInteractive"
-          />
-          <Script id="ga4-init" strategy="afterInteractive">
-            {`
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', '${GA_ID}', {
-                page_path: window.location.pathname,
-              });
-            `}
-          </Script>
-        </>
-      )}
+      {/* GA4: load the gtag library AFTER the app becomes interactive */}
+      <Script
+        src="https://www.googletagmanager.com/gtag/js?id=G-W1BZMF7XNP"
+        strategy="afterInteractive"
+      />
+
+      {/* GA4: initialize and enable debug_mode so DebugView sees you */}
+      <Script id="ga4-init" strategy="afterInteractive">
+        {`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-W1BZMF7XNP', { debug_mode: true });
+        `}
+      </Script>
+
+      {/* Render all pages */}
       <Component {...pageProps} />
     </>
   );
