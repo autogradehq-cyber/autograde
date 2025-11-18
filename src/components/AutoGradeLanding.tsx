@@ -1,296 +1,348 @@
-// FILE: src/components/AutoGradeLanding.tsx
-// Marketing landing page for AutoGradeHQ.
-// NOTE: Only the /compatibility page fires the real `generate_lead` event.
-// This page only sends soft-intent events like cta_click & price_alert_interest.
+// src/components/AutoGradeLanding.tsx
+import React, { useState, FormEvent } from "react";
+import Link from "next/link";
 
-import { useRouter } from "next/router";
-import React, { FormEvent, useCallback, useState } from "react";
-
-function sendGaEvent(name: string, params: Record<string, any> = {}) {
+// Simple GA4 event helper
+const trackEvent = (eventName: string, params?: Record<string, any>) => {
   if (typeof window === "undefined") return;
-  const w = window as any;
-  if (!w.gtag) return;
+  // @ts-ignore
+  if (typeof window.gtag !== "function") return;
+  // @ts-ignore
+  window.gtag("event", eventName, params || {});
+};
 
-  w.gtag("event", name, params);
-}
+const AutoGradeLanding: React.FC = () => {
+  const [email, setEmail] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
 
-export default function AutoGradeLanding() {
-  const router = useRouter();
-
-  // --- Price alert soft-intent state ---
-  const [priceAlertEmail, setPriceAlertEmail] = useState("");
-  const [priceAlertStatus, setPriceAlertStatus] = useState<
-    "idle" | "loading" | "success" | "error"
-  >("idle");
-
-  // --- Hero CTAs ---
-
-  const handlePrimaryCta = useCallback(() => {
-    sendGaEvent("cta_click", {
-      location: "hero",
-      label: "check_compatibility",
-      destination: "/compatibility",
+  const handleHeroClick = () => {
+    trackEvent("cta_click", {
+      form_type: "compatibility",
+      location: "hero_primary",
     });
+  };
 
-    router.push("/compatibility");
-  }, [router]);
+  const handlePriceAlertSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setStatus("idle");
+    setErrorMessage("");
 
-  const handleSecondaryCta = useCallback(() => {
-    sendGaEvent("cta_click", {
-      location: "hero",
-      label: "learn_how_it_works",
-      destination: "#how-it-works",
-    });
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setErrorMessage("Please enter your email.");
+      setStatus("error");
+      return;
+    }
 
-    const el = document.getElementById("how-it-works");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
-
-  // --- Price alerts soft-intent form ---
-
-  const handlePriceAlertSubmit = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-
-      if (!priceAlertEmail || !/.+@.+\..+/.test(priceAlertEmail)) {
-        alert("Please enter a valid email address.");
-        return;
-      }
-
-      setPriceAlertStatus("loading");
-
-      // Soft-intent event ONLY (does not count as a lead)
-      sendGaEvent("price_alert_interest", {
-        location: "price-alert-card",
-        label: "notify_me_when_live",
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/price-alerts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: trimmed }),
       });
 
-      try {
-        const res = await fetch("/api/price-alerts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: priceAlertEmail }),
-        });
+      if (!res.ok) throw new Error("Request failed");
 
-        if (!res.ok) {
-          console.error("Price alerts API error:", res.status);
-          setPriceAlertStatus("error");
-          alert("Something went wrong saving your alert. Please try again.");
-          return;
-        }
+      trackEvent("price_alert_interest", {
+        form_type: "price_alert",
+        location: "landing_price_alert_strip",
+      });
 
-        setPriceAlertStatus("success");
-        setPriceAlertEmail("");
-      } catch (err) {
-        console.error("Price alerts network error:", err);
-        setPriceAlertStatus("error");
-        alert("Network error. Please try again.");
-      }
-    },
-    [priceAlertEmail]
-  );
+      setStatus("success");
+      setEmail("");
+    } catch (err) {
+      console.error(err);
+      setStatus("error");
+      setErrorMessage("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-50">
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-6 pt-12 pb-16">
-        <header className="max-w-3xl">
-          <p className="text-xs uppercase tracking-[0.28em] text-indigo-300">
-            AutoGradeHQ
-          </p>
-          <h1 className="mt-3 text-4xl md:text-5xl font-black tracking-tight">
-            Get the <span className="text-indigo-400">right upgrade</span>{" "}
-            for your vehicle the first time.
-          </h1>
-          <p className="mt-4 text-sm md:text-base text-neutral-300">
-            AutoGradeHQ checks your planned upgrades against real fitment data,
-            return patterns, and install history so you avoid bad fits, wasted
-            weekends, and costly returns.
-          </p>
+    <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
+      {/* HERO */}
+      <section className="flex-1">
+        <div className="max-w-6xl mx-auto px-4 pt-16 pb-10 sm:pt-20 sm:pb-16 lg:pt-24">
+          <div className="grid gap-10 lg:grid-cols-2 items-center">
+            {/* Left: main copy */}
+            <div>
+              <p className="inline-flex items-center rounded-full bg-slate-900/90 border border-cyan-500/40 px-3 py-1 text-[11px] font-medium text-cyan-300 mb-4">
+                AutoGradeHQ · Upgrade decisions that actually fit
+              </p>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handlePrimaryCta}
-              className="inline-flex items-center justify-center rounded-xl bg-indigo-500 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-600"
-            >
-              Check my upgrade compatibility
-            </button>
-            <button
-              type="button"
-              onClick={handleSecondaryCta}
-              className="inline-flex items-center justify-center rounded-xl border border-neutral-700 px-5 py-3 text-sm font-semibold text-neutral-100 hover:bg-neutral-900"
-            >
-              See how AutoGrade works
-            </button>
-          </div>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-slate-50 mb-3">
+                Upgrade smarter.
+                <br />
+                <span className="text-cyan-300">Know what fits your vehicle.</span>
+              </h1>
 
-          <p className="mt-3 text-xs text-neutral-500">
-            Start with your daily driver or truck. No account required.
-          </p>
-        </header>
+              <p className="text-slate-300 text-sm sm:text-base mb-6 max-w-md">
+                Instant compatibility checks and data-backed recommendations for
+                wheels, suspension, exhaust, lighting, and more.
+              </p>
 
-        {/* Quick trust row */}
-        <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-neutral-400">
-          <div>
-            <div className="text-sm font-semibold text-neutral-100">
-              Fitment-first
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <Link
+                  href="/compatibility"
+                  onClick={handleHeroClick}
+                  className="inline-flex items-center justify-center rounded-md bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors"
+                >
+                  Check upgrade compatibility
+                </Link>
+                <a
+                  href="#how-it-works"
+                  className="inline-flex items-center justify-center rounded-md border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-900/80 transition-colors"
+                >
+                  See how it works
+                </a>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-500">
+                <span>✔ Reduce bad fitment & returns</span>
+                <span className="hidden sm:inline-block">•</span>
+                <span>✔ Built for real enthusiasts</span>
+                <span className="hidden sm:inline-block">•</span>
+                <span>✔ Free to start</span>
+              </div>
             </div>
-            <p>Built to reduce returns and wrong-fit installs.</p>
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-neutral-100">
-              Upgrade insight
+
+            {/* Right: tool-style preview card */}
+            <div className="relative">
+              <div className="absolute inset-0 bg-cyan-500/10 blur-3xl rounded-full -z-10" />
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6 shadow-2xl shadow-slate-950/80">
+                <p className="text-xs font-semibold text-slate-300 mb-3">
+                  Quick preview · Compatibility check
+                </p>
+
+                <div className="space-y-3 text-[11px] sm:text-xs">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Year</label>
+                      <div className="h-8 rounded-md bg-slate-950/70 border border-slate-700 flex items-center px-2 text-slate-500">
+                        2019
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Make</label>
+                      <div className="h-8 rounded-md bg-slate-950/70 border border-slate-700 flex items-center px-2 text-slate-500">
+                        Toyota
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Model</label>
+                      <div className="h-8 rounded-md bg-slate-950/70 border border-slate-700 flex items-center px-2 text-slate-500">
+                        Tacoma
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Trim</label>
+                      <div className="h-8 rounded-md bg-slate-950/70 border border-slate-700 flex items-center px-2 text-slate-500">
+                        TRD Off-Road
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      Upgrade type
+                    </label>
+                    <div className="h-8 rounded-md bg-slate-950/70 border border-slate-700 flex items-center px-2 text-slate-500">
+                      2&quot; lift · All-terrain tires
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl bg-slate-950/70 border border-slate-800 p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-slate-200">
+                        AutoGrade score
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                        Strong fit · 8.7/10
+                      </span>
+                    </div>
+                    <ul className="text-[11px] text-slate-400 space-y-1">
+                      <li>• Clears at full lock with minor trimming.</li>
+                      <li>• Daily drivability remains comfortable.</li>
+                      <li>• Pricing is fair vs similar setups.</li>
+                    </ul>
+                  </div>
+
+                  <p className="text-[10px] text-slate-500 mt-2">
+                    This is a visual example. Run your actual vehicle and
+                    upgrade combo on the compatibility tool.
+                  </p>
+                </div>
+              </div>
             </div>
-            <p>Headlights, wheels, suspension, tuning, and more.</p>
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-neutral-100">
-              Data-informed
-            </div>
-            <p>Powered by real-world upgrade and return patterns.</p>
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-neutral-100">
-              You stay in control
-            </div>
-            <p>No spam. We only email you compatibility results.</p>
           </div>
         </div>
       </section>
 
-      {/* How it works */}
+      {/* TRUST STRIP */}
+      <section className="border-t border-slate-900 bg-slate-950/95">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="grid gap-4 sm:grid-cols-3 text-[11px] sm:text-xs text-slate-400">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 text-cyan-300">✔</span>
+              <div>
+                <p className="font-semibold text-slate-100 mb-0.5">
+                  Built for real owners
+                </p>
+                <p>Not generic fitment tables—real-world use cases.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 text-cyan-300">✔</span>
+              <div>
+                <p className="font-semibold text-slate-100 mb-0.5">
+                  Data-backed picks
+                </p>
+                <p>Weighs price, reliability, and performance together.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 text-cyan-300">✔</span>
+              <div>
+                <p className="font-semibold text-slate-100 mb-0.5">
+                  Reduce returns & rework
+                </p>
+                <p>Know what fits before you click &quot;buy&quot;.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
       <section
         id="how-it-works"
-        className="mx-auto max-w-6xl px-6 pb-16 border-t border-neutral-900 pt-10"
+        className="border-t border-slate-900 bg-slate-950"
       >
-        <h2 className="text-lg md:text-xl font-semibold">
-          How AutoGradeHQ works
-        </h2>
-        <p className="mt-2 text-sm text-neutral-300 max-w-2xl">
-          We&apos;re building a fitment engine designed to help you choose
-          upgrades with confidence, starting with high-intent compatibility
-          checks instead of endless browsing.
-        </p>
-
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
-            <div className="text-xs font-semibold uppercase text-indigo-300">
-              Step 1
-            </div>
-            <h3 className="mt-1 font-semibold text-neutral-50">
-              Tell us your vehicle & upgrade
-            </h3>
-            <p className="mt-2 text-neutral-300">
-              Share your year, make, model, trim, and the upgrade you&apos;re
-              considering (e.g., headlights, wheels, leveling kit, exhaust).
+        <div className="max-w-6xl mx-auto px-4 py-12 sm:py-16">
+          <div className="flex items-baseline justify-between flex-wrap gap-3 mb-8">
+            <h2 className="text-xl sm:text-2xl font-semibold text-slate-50">
+              How AutoGrade works
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md">
+              A simple flow that checks compatibility first, then grades value and
+              performance so you can buy with confidence.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
-            <div className="text-xs font-semibold uppercase text-indigo-300">
-              Step 2
+          <div className="grid gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+              <div className="h-8 w-8 flex items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300 text-sm font-semibold mb-3">
+                1
+              </div>
+              <p className="text-sm font-semibold text-slate-100 mb-1">
+                Enter your vehicle
+              </p>
+              <p className="text-xs text-slate-400">
+                Year, make, model, and trim—so we match parts to your exact
+                setup, not just &quot;close enough&quot;.
+              </p>
             </div>
-            <h3 className="mt-1 font-semibold text-neutral-50">
-              AutoGrade checks compatibility
-            </h3>
-            <p className="mt-2 text-neutral-300">
-              We compare your vehicle and upgrade against curated fitment data,
-              install patterns, and known problem combos.
-            </p>
-          </div>
 
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
-            <div className="text-xs font-semibold uppercase text-indigo-300">
-              Step 3
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+              <div className="h-8 w-8 flex items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300 text-sm font-semibold mb-3">
+                2
+              </div>
+              <p className="text-sm font-semibold text-slate-100 mb-1">
+                Choose your upgrade
+              </p>
+              <p className="text-xs text-slate-400">
+                Wheels, tires, suspension, exhaust, lighting, and more—AutoGrade
+                checks fitment and potential issues.
+              </p>
             </div>
-            <h3 className="mt-1 font-semibold text-neutral-50">
-              You get a clear recommendation
-            </h3>
-            <p className="mt-2 text-neutral-300">
-              We email you a simple breakdown: what fits, what doesn&apos;t,
-              and which options offer the best value for your build.
-            </p>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+              <div className="h-8 w-8 flex items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300 text-sm font-semibold mb-3">
+                3
+              </div>
+              <p className="text-sm font-semibold text-slate-100 mb-1">
+                Review your AutoGrade
+              </p>
+              <p className="text-xs text-slate-400">
+                See a clear go / caution / avoid signal with notes on rubbing,
+                ride quality, reliability, and pricing vs alternatives.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Soft-intent / price alerts */}
-      <section className="mx-auto max-w-6xl px-6 pb-20 border-t border-neutral-900 pt-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-5">
-            <h3 className="text-sm font-semibold text-neutral-50">
-              Coming soon: price alerts & bundle recommendations
-            </h3>
-            <p className="mt-2 text-sm text-neutral-300">
-              We&apos;re working on tracking price history and bundle discounts
-              across popular retailers so we can tell you not just{" "}
-              <em>what fits</em>, but also <em>when to buy</em>.
-            </p>
-            <p className="mt-3 text-xs text-neutral-500">
-              Drop your email below to register interest. This is a soft signal
-              only — it helps us understand demand and will not be counted as a
-              lead in our system.
-            </p>
+      {/* PRICE ALERT STRIP */}
+      <section className="border-t border-slate-900 bg-slate-950/95">
+        <div className="max-w-5xl mx-auto px-4 py-10">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-5 py-6 sm:px-6 sm:py-7 flex flex-col md:flex-row gap-5 md:items-center md:justify-between">
+            <div className="max-w-md">
+              <h3 className="text-sm sm:text-base font-semibold text-slate-50 mb-1">
+                Get price alerts on high-value upgrades
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-400">
+                Drop your email and we&apos;ll notify you when we spot strong deals on
+                well-rated parts that fit your vehicle.
+              </p>
+            </div>
 
             <form
               onSubmit={handlePriceAlertSubmit}
-              className="mt-4 flex flex-col sm:flex-row gap-2"
+              className="w-full md:max-w-sm space-y-2"
             >
-              <input
-                type="email"
-                value={priceAlertEmail}
-                onChange={(e) => setPriceAlertEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-500"
-              />
-              <button
-                type="submit"
-                disabled={priceAlertStatus === "loading"}
-                className="inline-flex items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 disabled:opacity-60"
-              >
-                {priceAlertStatus === "loading"
-                  ? "Saving..."
-                  : "Notify me when it’s live"}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="flex-1 rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs sm:text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center justify-center rounded-md bg-cyan-400 px-4 py-2 text-xs sm:text-sm font-semibold text-slate-950 shadow-md shadow-cyan-500/20 hover:bg-cyan-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? "Adding..." : "Notify me"}
+                </button>
+              </div>
+
+              {status === "success" && (
+                <p className="text-[11px] text-emerald-400">
+                  You&apos;re on the list. We&apos;ll only email for legit value, not spam.
+                </p>
+              )}
+
+              {status === "error" && errorMessage && (
+                <p className="text-[11px] text-red-400">{errorMessage}</p>
+              )}
+
+              <p className="text-[10px] text-slate-500">
+                No spam. Unsubscribe with one click.
+              </p>
             </form>
-
-            {priceAlertStatus === "success" && (
-              <p className="mt-2 text-[11px] text-emerald-300">
-                You&apos;re on the list. We&apos;ll email you when price alerts
-                are available.
-              </p>
-            )}
-
-            {priceAlertStatus === "error" && (
-              <p className="mt-2 text-[11px] text-red-400">
-                Something went wrong saving your alert. Please try again later.
-              </p>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-5 text-sm text-neutral-300">
-            <h3 className="text-sm font-semibold text-neutral-50 mb-2">
-              Why we only count true compatibility checks as leads
-            </h3>
-            <p>
-              Most upgrade purchases break down at the fitment step: wrong
-              headlight housings, wheels that rub, suspension that doesn&apos;t
-              match the intended use. AutoGradeHQ is designed to reduce that
-              friction, not add to it.
-            </p>
-            <p className="mt-2">
-              That&apos;s why the only &quot;hard&quot; event we track as a
-              lead is when you submit a full compatibility check with your
-              vehicle and upgrade details. Everything else, like this interest
-              form, is treated as soft engagement — useful for learning, but
-              never counted as a lead.
-            </p>
           </div>
         </div>
       </section>
+
+      {/* FOOTER */}
+      <footer className="border-t border-slate-900 bg-slate-950 py-6">
+        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500">
+          <p>© {new Date().getFullYear()} AutoGradeHQ. All rights reserved.</p>
+          <p className="text-[10px] sm:text-[11px] text-slate-500">
+            AutoGrade doesn&apos;t sell parts. We help you choose smarter upgrades
+            through data-driven guidance and affiliate partners.
+          </p>
+        </div>
+      </footer>
     </main>
   );
-}
+};
 
-
+export default AutoGradeLanding;
