@@ -1,10 +1,10 @@
-
 // FILE: src/components/AutoGradeLanding.tsx
-// Main marketing/landing page for AutoGradeHQ
-// NOTE: This page MUST NOT fire `generate_lead`. That event only lives on /compatibility.
+// Marketing landing page for AutoGradeHQ.
+// NOTE: Only the /compatibility page fires the real `generate_lead` event.
+// This page only sends soft-intent events like cta_click & price_alert_interest.
 
 import { useRouter } from "next/router";
-import { useCallback } from "react";
+import React, { FormEvent, useCallback, useState } from "react";
 
 function sendGaEvent(name: string, params: Record<string, any> = {}) {
   if (typeof window === "undefined") return;
@@ -17,12 +17,21 @@ function sendGaEvent(name: string, params: Record<string, any> = {}) {
 export default function AutoGradeLanding() {
   const router = useRouter();
 
+  // --- Price alert soft-intent state ---
+  const [priceAlertEmail, setPriceAlertEmail] = useState("");
+  const [priceAlertStatus, setPriceAlertStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+
+  // --- Hero CTAs ---
+
   const handlePrimaryCta = useCallback(() => {
     sendGaEvent("cta_click", {
       location: "hero",
       label: "check_compatibility",
       destination: "/compatibility",
     });
+
     router.push("/compatibility");
   }, [router]);
 
@@ -32,20 +41,54 @@ export default function AutoGradeLanding() {
       label: "learn_how_it_works",
       destination: "#how-it-works",
     });
+
     const el = document.getElementById("how-it-works");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const handlePriceAlertInterest = useCallback(() => {
-    // Soft intent – does NOT count as a lead
-    sendGaEvent("price_alert_interest", {
-      location: "price-alert-card",
-      label: "notify_me_when_live",
-    });
-    alert(
-      "Price alerts will be available soon. For now, use the compatibility check to get upgrade advice."
-    );
-  }, []);
+  // --- Price alerts soft-intent form ---
+
+  const handlePriceAlertSubmit = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+
+      if (!priceAlertEmail || !/.+@.+\..+/.test(priceAlertEmail)) {
+        alert("Please enter a valid email address.");
+        return;
+      }
+
+      setPriceAlertStatus("loading");
+
+      // Soft-intent event ONLY (does not count as a lead)
+      sendGaEvent("price_alert_interest", {
+        location: "price-alert-card",
+        label: "notify_me_when_live",
+      });
+
+      try {
+        const res = await fetch("/api/price-alerts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: priceAlertEmail }),
+        });
+
+        if (!res.ok) {
+          console.error("Price alerts API error:", res.status);
+          setPriceAlertStatus("error");
+          alert("Something went wrong saving your alert. Please try again.");
+          return;
+        }
+
+        setPriceAlertStatus("success");
+        setPriceAlertEmail("");
+      } catch (err) {
+        console.error("Price alerts network error:", err);
+        setPriceAlertStatus("error");
+        alert("Network error. Please try again.");
+      }
+    },
+    [priceAlertEmail]
+  );
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-50">
@@ -172,7 +215,7 @@ export default function AutoGradeLanding() {
         </div>
       </section>
 
-      {/* Soft-intent / future features */}
+      {/* Soft-intent / price alerts */}
       <section className="mx-auto max-w-6xl px-6 pb-20 border-t border-neutral-900 pt-10">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-5">
@@ -185,22 +228,50 @@ export default function AutoGradeLanding() {
               <em>what fits</em>, but also <em>when to buy</em>.
             </p>
             <p className="mt-3 text-xs text-neutral-500">
-              Tap the button below to register interest. This will not count as
-              a lead in our system — it simply helps us understand demand.
+              Drop your email below to register interest. This is a soft signal
+              only — it helps us understand demand and will not be counted as a
+              lead in our system.
             </p>
 
-            <button
-              type="button"
-              onClick={handlePriceAlertInterest}
-              className="mt-4 inline-flex items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/20"
+            <form
+              onSubmit={handlePriceAlertSubmit}
+              className="mt-4 flex flex-col sm:flex-row gap-2"
             >
-              Notify me when price alerts go live
-            </button>
+              <input
+                type="email"
+                value={priceAlertEmail}
+                onChange={(e) => setPriceAlertEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-500"
+              />
+              <button
+                type="submit"
+                disabled={priceAlertStatus === "loading"}
+                className="inline-flex items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 disabled:opacity-60"
+              >
+                {priceAlertStatus === "loading"
+                  ? "Saving..."
+                  : "Notify me when it’s live"}
+              </button>
+            </form>
+
+            {priceAlertStatus === "success" && (
+              <p className="mt-2 text-[11px] text-emerald-300">
+                You&apos;re on the list. We&apos;ll email you when price alerts
+                are available.
+              </p>
+            )}
+
+            {priceAlertStatus === "error" && (
+              <p className="mt-2 text-[11px] text-red-400">
+                Something went wrong saving your alert. Please try again later.
+              </p>
+            )}
           </div>
 
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-5 text-sm text-neutral-300">
             <h3 className="text-sm font-semibold text-neutral-50 mb-2">
-              Why we don&apos;t guess on fitment
+              Why we only count true compatibility checks as leads
             </h3>
             <p>
               Most upgrade purchases break down at the fitment step: wrong
@@ -210,9 +281,10 @@ export default function AutoGradeLanding() {
             </p>
             <p className="mt-2">
               That&apos;s why the only &quot;hard&quot; event we track as a
-              lead is when you submit a full compatibility check. Everything
-              else, like this interest button, is treated as soft engagement
-              — useful for learning, but never counted as a lead.
+              lead is when you submit a full compatibility check with your
+              vehicle and upgrade details. Everything else, like this interest
+              form, is treated as soft engagement — useful for learning, but
+              never counted as a lead.
             </p>
           </div>
         </div>
@@ -220,3 +292,5 @@ export default function AutoGradeLanding() {
     </main>
   );
 }
+
+
