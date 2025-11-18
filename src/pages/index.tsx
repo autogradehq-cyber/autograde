@@ -1,11 +1,9 @@
-import AutoGradeLanding from "@/components/AutoGradeLanding";
+// src/pages/index.tsx
+import React from "react";
+import AutoGradeLanding from "../components/AutoGradeLanding";
 
-export default function Home() {
+const HomePage: React.FC = () => {
   return <AutoGradeLanding />;
-}
+};
 
-// To set up the UI packages run these commands in your terminal:
-// npx shadcn-ui@latest init -y
-// npx shadcn-ui@latest add button card input badge
-// npm install framer-motion lucide-react
-// npm run dev
+export default HomePage;
