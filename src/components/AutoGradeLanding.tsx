@@ -87,29 +87,33 @@ const AutoGradeLanding: React.FC = () => {
                 wheels, suspension, exhaust, lighting, and more.
               </p>
 
-              <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                <Link
-                  href="/compatibility"
-                  onClick={handleHeroClick}
-                  className="inline-flex items-center justify-center rounded-md bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors"
-                >
-                  Check upgrade compatibility
-                </Link>
-                <a
-                  href="#how-it-works"
-                  className="inline-flex items-center justify-center rounded-md border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-900/80 transition-colors"
-                >
-                  See how it works
-                </a>
-              </div>
+  <div className="flex flex-col sm:flex-row gap-3 mb-4">
+  <Link
+    href="/compatibility"
+    onClick={handleHeroClick}
+    className="inline-flex items-center justify-center rounded-md bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors"
+  >
+    Start Compatibility Check
+  </Link>
+  <a
+    href="#how-it-works"
+    className="inline-flex items-center justify-center rounded-md border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-900/80 transition-colors"
+  >
+    See how it works
+  </a>
+</div>
 
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-500">
-                <span>✔ Reduce bad fitment & returns</span>
-                <span className="hidden sm:inline-block">•</span>
-                <span>✔ Built for real enthusiasts</span>
-                <span className="hidden sm:inline-block">•</span>
-                <span>✔ Free to start</span>
-              </div>
+<p className="text-[11px] text-slate-500 mt-2">
+  Independent. No spam. We don’t sell parts — we just help you choose smarter upgrades.
+</p>
+<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-500">
+  <span>✔ Verified fitment confidence</span>
+  <span className="hidden sm:inline-block">•</span>
+  <span>✔ Real-world owner data</span>
+  <span className="hidden sm:inline-block">•</span>
+  <span>✔ Faster decisions, fewer returns</span>
+</div>
+
             </div>
 
             {/* Right: tool-style preview card */}
@@ -241,7 +245,7 @@ const AutoGradeLanding: React.FC = () => {
                 1
               </div>
               <p className="text-sm font-semibold text-slate-100 mb-1">
-                Enter your vehicle
+                Enter your exact vehicle
               </p>
               <p className="text-xs text-slate-400">
                 Year, make, model, and trim—so we match parts to your exact
@@ -254,7 +258,7 @@ const AutoGradeLanding: React.FC = () => {
                 2
               </div>
               <p className="text-sm font-semibold text-slate-100 mb-1">
-                Choose your upgrade
+                Pick your upgrade
               </p>
               <p className="text-xs text-slate-400">
                 Wheels, tires, suspension, exhaust, lighting, and more—AutoGrade
@@ -267,7 +271,7 @@ const AutoGradeLanding: React.FC = () => {
                 3
               </div>
               <p className="text-sm font-semibold text-slate-100 mb-1">
-                Review your AutoGrade
+                Get your AutoGrade score
               </p>
               <p className="text-xs text-slate-400">
                 See a clear go / caution / avoid signal with notes on rubbing,
@@ -287,9 +291,9 @@ const AutoGradeLanding: React.FC = () => {
                 Get price alerts on high-value upgrades
               </h3>
               <p className="text-xs sm:text-sm text-slate-400">
-                Drop your email and we&apos;ll notify you when we spot strong deals on
-                well-rated parts that fit your vehicle.
-              </p>
+  We only alert you about legit value — real price drops on highly rated parts that actually fit your vehicle.
+</p>
+
             </div>
 
             <form
