@@ -165,6 +165,17 @@ const CompatibilityPage: NextPage = () => {
     }
   };
 
+  // New: track affiliate-style clicks on suggested directions
+  const handleAffiliateClick = (ideaType: string) => {
+    trackEvent("affiliate_click", {
+      upgrade_type: form.upgrade || ideaType,
+      vehicle_year: form.year,
+      vehicle_make: form.make,
+      vehicle_model: form.model,
+      vehicle_trim: form.trim,
+    });
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="max-w-6xl mx-auto px-4 py-12 sm:py-16">
@@ -511,6 +522,17 @@ const CompatibilityPage: NextPage = () => {
                                 {idea.examplePartHint}
                               </span>
                             </p>
+
+                            {/* New monetization CTA */}
+                            <a
+                              href="https://example.com" // TODO: replace with real affiliate URL
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={() => handleAffiliateClick(idea.type)}
+                              className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                            >
+                              Shop this direction
+                            </a>
                           </div>
                         )
                       )}
