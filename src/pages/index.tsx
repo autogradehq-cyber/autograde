@@ -1,3 +1,4 @@
+
 // src/pages/index.tsx
 import React from "react";
 import Head from "next/head";
@@ -9,14 +10,23 @@ const HomePage: React.FC = () => {
       <Head>
         <title>AutoGradeHQ</title>
 
-        {/* FlexOffers verification */}
+        {/* FlexOffers Verification */}
         <meta
           name="fo-verify"
           content="a511f696-e620-46fc-a3de-c2969492ea51"
         />
       </Head>
 
+      {/* Main Landing Page */}
       <AutoGradeLanding />
+
+      {/* Sovrn Verification Link (hidden from users) */}
+      <a
+        href="https://sovrn.co/1ecj8lv"
+        style={{ display: "none" }}
+      >
+        Sovrn Verification
+      </a>
     </>
   );
 };
