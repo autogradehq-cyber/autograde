@@ -3,7 +3,7 @@ import React, { useState, FormEvent } from "react";
 import type { NextPage } from "next";
 import type { UpgradeRecommendation } from "./api/recommendations";
 
-// Simple GA4 event helper
+// ---- GA4 helper ----
 const trackEvent = (eventName: string, params?: Record<string, any>) => {
   if (typeof window === "undefined") return;
   // @ts-ignore
@@ -12,6 +12,37 @@ const trackEvent = (eventName: string, params?: Record<string, any>) => {
   window.gtag("event", eventName, params || {});
 };
 
+// ---- Affiliate helpers ----
+const buildAmazonSearchUrl = (keywords: string) => {
+  const tag = process.env.NEXT_PUBLIC_AMAZON_TAG;
+  const base = `https://www.amazon.com/s?k=${encodeURIComponent(keywords)}`;
+  return tag ? `${base}&tag=${encodeURIComponent(tag)}` : base;
+};
+
+type AffiliateVendor = "amazon" | "tirerack" | "summit";
+const chooseVendor = (ideaType: string): AffiliateVendor => {
+  // For now, send everything to Amazon until Tire Rack / Summit affiliate
+  // accounts are set up and wired with real tracking links.
+  return "amazon";
+};
+
+const buildAffiliateUrl = (
+  vendor: AffiliateVendor,
+  keywords: string
+): string => {
+  switch (vendor) {
+    case "tirerack":
+      // TODO: replace with your real Tire Rack affiliate deep link format
+      return "https://www.tirerack.com/";
+    case "summit":
+      // TODO: replace with your real Summit Racing affiliate deep link format
+      return "https://www.summitracing.com/";
+    default:
+      return buildAmazonSearchUrl(keywords);
+  }
+};
+
+// ---- Form state ----
 type FormState = {
   year: string;
   make: string;
@@ -60,7 +91,6 @@ const CompatibilityPage: NextPage = () => {
 
     const { year, make, model, trim, upgrade, email } = form;
 
-    // Basic validation
     if (!year || !make || !model || !upgrade || !email) {
       setStatus("error");
       setMessage("Please fill in year, make, model, upgrade, and email.");
@@ -70,7 +100,7 @@ const CompatibilityPage: NextPage = () => {
     setIsSubmitting(true);
 
     try {
-      // 1) Call your existing compatibility API (email + lead)
+      // 1) Compatibility API (email + lead)
       const compatRes = await fetch("/api/compatibility", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,7 +133,7 @@ const CompatibilityPage: NextPage = () => {
         "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
       );
 
-      // 2) Call AI recommendation API (does not block success if it fails)
+      // 2) AI recommendations (non-blocking)
       setAiLoading(true);
       try {
         const aiRes = await fetch("/api/recommendations", {
@@ -136,15 +166,18 @@ const CompatibilityPage: NextPage = () => {
             );
           }
         } else {
-          console.warn("[compatibility] AI request failed with status", aiRes.status);
+          console.warn(
+            "[compatibility] AI request failed with status",
+            aiRes.status
+          );
         }
-      } catch (aiErr) {
-        console.error("[compatibility] Error calling AI recommendation API:", aiErr);
+      } catch (err) {
+        console.error("[compatibility] Error calling AI recommendation API:", err);
       } finally {
         setAiLoading(false);
       }
 
-      // Reset the core form fields (keep driving style/budget/priorities if you want)
+      // Reset key fields
       setForm((prev) => ({
         ...prev,
         year: "",
@@ -165,14 +198,14 @@ const CompatibilityPage: NextPage = () => {
     }
   };
 
-  // New: track affiliate-style clicks on suggested directions
-  const handleAffiliateClick = (ideaType: string) => {
+  const handleAffiliateClick = (ideaType: string, vendor: AffiliateVendor) => {
     trackEvent("affiliate_click", {
       upgrade_type: form.upgrade || ideaType,
       vehicle_year: form.year,
       vehicle_make: form.make,
       vehicle_model: form.model,
       vehicle_trim: form.trim,
+      vendor,
     });
   };
 
@@ -187,9 +220,9 @@ const CompatibilityPage: NextPage = () => {
             Check if your upgrade actually fits — before you buy.
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-2xl">
-            Tell us about your vehicle and the upgrade you&apos;re considering. We&apos;ll
-            email you a breakdown and generate an AutoGrade recommendation based on
-            fitment, value, and real-world use.
+            Tell us about your vehicle and the upgrade you&apos;re considering.
+            We&apos;ll email you a breakdown and generate an AutoGrade
+            recommendation based on fitment, value, and real-world use.
           </p>
         </header>
 
@@ -381,8 +414,8 @@ const CompatibilityPage: NextPage = () => {
               )}
 
               <p className="text-[11px] text-slate-500">
-                We&apos;ll never sell your data. Your email is only used for sending
-                this upgrade breakdown and optional follow-ups.
+                We&apos;ll never sell your data. Your email is only used for
+                sending this upgrade breakdown and optional follow-ups.
               </p>
             </form>
           </section>
@@ -394,8 +427,9 @@ const CompatibilityPage: NextPage = () => {
                 AutoGrade recommendation
               </h2>
               <p className="text-xs text-slate-400 mb-3">
-                After you submit the form, we generate an AI-backed recommendation
-                based on fitment confidence, value, and real-world use.
+                After you submit the form, we generate an AI-backed
+                recommendation based on fitment confidence, value, and
+                real-world use.
               </p>
 
               {aiLoading && (
@@ -407,8 +441,8 @@ const CompatibilityPage: NextPage = () => {
 
               {!aiLoading && !aiRecommendation && (
                 <p className="text-xs text-slate-500">
-                  Submit your vehicle and upgrade details to see an AutoGrade score
-                  and recommendation here.
+                  Submit your vehicle and upgrade details to see an AutoGrade
+                  score and recommendation here.
                 </p>
               )}
 
@@ -523,16 +557,34 @@ const CompatibilityPage: NextPage = () => {
                               </span>
                             </p>
 
-                            {/* New monetization CTA */}
-                            <a
-                              href="https://example.com" // TODO: replace with real affiliate URL
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => handleAffiliateClick(idea.type)}
-                              className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                            >
-                              Shop this direction
-                            </a>
+                            {/* Monetized CTA */}
+                            {(() => {
+                              const vendor = chooseVendor(idea.type || "");
+                              const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
+                              const href = buildAffiliateUrl(
+                                vendor,
+                                keywords || form.upgrade || "auto upgrade"
+                              );
+
+                              return (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() =>
+                                    handleAffiliateClick(idea.type, vendor)
+                                  }
+                                  className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                                >
+                                  {vendor === "amazon" &&
+                                    "Shop this direction on Amazon"}
+                                  {vendor === "tirerack" &&
+                                    "Shop this direction on Tire Rack"}
+                                  {vendor === "summit" &&
+                                    "Shop this direction on Summit Racing"}
+                                </a>
+                              );
+                            })()}
                           </div>
                         )
                       )}
