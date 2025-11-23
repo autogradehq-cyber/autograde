@@ -19,14 +19,19 @@ const HomePage: React.FC = () => {
 
       {/* Main Landing Page */}
       <AutoGradeLanding />
+{/* Sovrn Verification Link (TEMPORARILY visible so you can click it) */}
+<a
+  href="https://sovrn.co/1ecj8lv"
+  style={{
+    display: "inline-block",
+    fontSize: "10px",
+    color: "#64748b",
+    marginTop: "12px",
+  }}
+>
+  Sovrn verification link (temporary)
+</a>
 
-      {/* Sovrn Verification Link (hidden from users) */}
-      <a
-        href="https://sovrn.co/1ecj8lv"
-        style={{ display: "none" }}
-      >
-        Sovrn Verification
-      </a>
     </>
   );
 };
