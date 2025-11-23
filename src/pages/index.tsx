@@ -23,11 +23,7 @@ const HomePage: React.FC = () => {
 <a
   href="https://sovrn.co/1ecj8lv"
   style={{
-    display: "inline-block",
-    fontSize: "10px",
-    color: "#64748b",
-    marginTop: "12px",
-  }}
+    display: "none",}}
 >
   Sovrn verification link (temporary)
 </a>
