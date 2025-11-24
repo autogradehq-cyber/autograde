@@ -18,11 +18,26 @@ const buildAmazonSearchUrl = (keywords: string) => {
   const base = `https://www.amazon.com/s?k=${encodeURIComponent(keywords)}`;
   return tag ? `${base}&tag=${encodeURIComponent(tag)}` : base;
 };
-
 type AffiliateVendor = "amazon" | "tirerack" | "summit";
+
+// Optional vendor-specific bases (when you join their programs)
+const tireRackBase =
+  process.env.NEXT_PUBLIC_TIRERACK_URL || "https://www.tirerack.com/";
+const summitBase =
+  process.env.NEXT_PUBLIC_SUMMIT_URL || "https://www.summitracing.com/";
+
+// Smart vendor choice, but still safe if you don't have their affiliate set up yet
 const chooseVendor = (ideaType: string): AffiliateVendor => {
-  // For now, send everything to Amazon until Tire Rack / Summit affiliate
-  // accounts are set up and wired with real tracking links.
+  const t = (ideaType || "").toLowerCase();
+
+  // Tires and wheels → Tire Rack
+  if (t.includes("tire") || t.includes("wheel")) return "tirerack";
+
+  // Lift kits / suspension / shocks → Summit Racing
+  if (t.includes("lift") || t.includes("suspension") || t.includes("shock"))
+    return "summit";
+
+  // Everything else → Amazon
   return "amazon";
 };
 
@@ -31,12 +46,15 @@ const buildAffiliateUrl = (
   keywords: string
 ): string => {
   switch (vendor) {
-    case "tirerack":
-      // TODO: replace with your real Tire Rack affiliate deep link format
-      return "https://www.tirerack.com/";
-    case "summit":
-      // TODO: replace with your real Summit Racing affiliate deep link format
-      return "https://www.summitracing.com/";
+    case "tirerack": {
+      // For now just send to Tire Rack homepage or a search page.
+      // Later, replace tireRackBase with your real affiliate deep link.
+      return tireRackBase;
+    }
+    case "summit": {
+      // Same idea for Summit Racing.
+      return summitBase;
+    }
     default:
       return buildAmazonSearchUrl(keywords);
   }
@@ -91,7 +109,7 @@ const CompatibilityPage: NextPage = () => {
 
     const { year, make, model, trim, upgrade, email } = form;
 
-    if (!year || !make || !model || !upgrade || !email) {
+   if (!year || !make || !model || !upgrade || !email) {
       setStatus("error");
       setMessage("Please fill in year, make, model, upgrade, and email.");
       return;

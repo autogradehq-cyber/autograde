@@ -7,7 +7,7 @@ let openai: OpenAI | null = null;
 const apiKey = process.env.OPENAI_API_KEY;
 const projectId = process.env.OPENAI_PROJECT_ID;
 
-// Debug what the server actually sees
+// Debug what the server actually sees on startup
 console.log("[/api/recommendations] env debug:", {
   hasKey: !!apiKey,
   keyPrefix: apiKey?.slice(0, 12),
@@ -62,7 +62,7 @@ export default async function handler(
     drivingStyle,
     budgetLevel,
     priorities,
-    email,
+    email, // not yet used but kept for future personalization / follow-ups
   } = req.body || {};
 
   if (!year || !make || !model || !upgradeType) {
@@ -124,7 +124,7 @@ Given:
 - Budget level: ${budgetLevel || "not specified"}
 - Owner priorities: ${priorities || "not specified"}
 
-Return a STRICT JSON object (no extra text) with this exact shape:
+Return a STRICT JSON object (no extra text, no markdown) with this exact shape:
 
 {
   "overview": string,
@@ -150,13 +150,17 @@ Return a STRICT JSON object (no extra text) with this exact shape:
 Guidelines:
 - Be realistic and conservative about fitment and risk.
 - Consider rubbing, supporting mods, warranty risk, and daily drivability.
-- Never mention affiliate links or specific stores; keep it generic for now.
+- Never mention affiliate links, stores, or brands; keep recommendations generic and principle-driven.
 - Tailor the advice to this specific vehicle + upgrade type.
+- Use "budget" only for entry-level options, "premium" for high-end builds, and "midrange" for most daily-driver setups.
 `;
 
     const response = await openai.responses.create({
       model: "gpt-4o-mini",
       input: prompt,
+      // easy tuning knobs if we want to adjust behavior later
+      max_output_tokens: 800,
+      temperature: 0.3,
     });
 
     const rawText = (response as any).output_text as string | undefined;
@@ -178,6 +182,10 @@ Guidelines:
   }
 }
 
+/**
+ * Some models occasionally wrap JSON in extra text.
+ * This helper extracts the first {...} block so JSON.parse succeeds.
+ */
 function extractJson(text: string): string {
   const firstBrace = text.indexOf("{");
   const lastBrace = text.lastIndexOf("}");
