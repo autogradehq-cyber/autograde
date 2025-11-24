@@ -13,29 +13,28 @@ const trackEvent = (eventName: string, params?: Record<string, any>) => {
 };
 
 // ---- Affiliate helpers ----
-const buildAmazonSearchUrl = (keywords: string) => {
-  const tag = process.env.NEXT_PUBLIC_AMAZON_TAG;
-  const base = `https://www.amazon.com/s?k=${encodeURIComponent(keywords)}`;
-  return tag ? `${base}&tag=${encodeURIComponent(tag)}` : base;
-};
-type AffiliateVendor = "amazon" | "tirerack" | "summit";
+type AffiliateVendor = "amazon" | "tirerack" | "summit" | "realtruck";
 
-// Optional vendor-specific bases (when you join their programs)
-const tireRackBase =
-  process.env.NEXT_PUBLIC_TIRERACK_URL || "https://www.tirerack.com/";
-const summitBase =
-  process.env.NEXT_PUBLIC_SUMMIT_URL || "https://www.summitracing.com/";
-
-// Smart vendor choice, but still safe if you don't have their affiliate set up yet
 const chooseVendor = (ideaType: string): AffiliateVendor => {
   const t = (ideaType || "").toLowerCase();
 
-  // Tires and wheels → Tire Rack
+  // Tires / wheels → Tire Rack
   if (t.includes("tire") || t.includes("wheel")) return "tirerack";
 
-  // Lift kits / suspension / shocks → Summit Racing
+  // Lift / suspension / shocks → Summit Racing
   if (t.includes("lift") || t.includes("suspension") || t.includes("shock"))
     return "summit";
+
+  // Truck accessories (future RealTruck) – tonneau, steps, etc.
+  if (
+    t.includes("tonneau") ||
+    t.includes("bed cover") ||
+    t.includes("running board") ||
+    t.includes("step") ||
+    t.includes("nerf bar")
+  ) {
+    return "realtruck";
+  }
 
   // Everything else → Amazon
   return "amazon";
@@ -45,19 +44,10 @@ const buildAffiliateUrl = (
   vendor: AffiliateVendor,
   keywords: string
 ): string => {
-  switch (vendor) {
-    case "tirerack": {
-      // For now just send to Tire Rack homepage or a search page.
-      // Later, replace tireRackBase with your real affiliate deep link.
-      return tireRackBase;
-    }
-    case "summit": {
-      // Same idea for Summit Racing.
-      return summitBase;
-    }
-    default:
-      return buildAmazonSearchUrl(keywords);
-  }
+  const params = new URLSearchParams();
+  params.set("vendor", vendor);
+  params.set("q", keywords || "auto upgrade");
+  return `/api/out?${params.toString()}`;
 };
 
 // ---- Form state ----
@@ -85,6 +75,21 @@ const initialForm: FormState = {
   priorities: "",
 };
 
+const estimateValueFromPriceBand = (
+  priceBand: "budget" | "midrange" | "premium"
+) => {
+  switch (priceBand) {
+    case "budget":
+      return 150; // rough average cart
+    case "midrange":
+      return 500;
+    case "premium":
+      return 1200;
+    default:
+      return 300;
+  }
+};
+
 const CompatibilityPage: NextPage = () => {
   const [form, setForm] = useState<FormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -101,6 +106,26 @@ const CompatibilityPage: NextPage = () => {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleAffiliateClick = (
+    ideaType: string,
+    vendor: AffiliateVendor,
+    priceBand: "budget" | "midrange" | "premium"
+  ) => {
+    const estimatedValue = estimateValueFromPriceBand(priceBand);
+
+    trackEvent("affiliate_click", {
+      upgrade_type: form.upgrade || ideaType,
+      vehicle_year: form.year,
+      vehicle_make: form.make,
+      vehicle_model: form.model,
+      vehicle_trim: form.trim,
+      vendor,
+      price_band: priceBand,
+      value: estimatedValue,
+      currency: "USD",
+    });
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setStatus("idle");
@@ -109,7 +134,7 @@ const CompatibilityPage: NextPage = () => {
 
     const { year, make, model, trim, upgrade, email } = form;
 
-   if (!year || !make || !model || !upgrade || !email) {
+    if (!year || !make || !model || !upgrade || !email) {
       setStatus("error");
       setMessage("Please fill in year, make, model, upgrade, and email.");
       return;
@@ -190,12 +215,15 @@ const CompatibilityPage: NextPage = () => {
           );
         }
       } catch (err) {
-        console.error("[compatibility] Error calling AI recommendation API:", err);
+        console.error(
+          "[compatibility] Error calling AI recommendation API:",
+          err
+        );
       } finally {
         setAiLoading(false);
       }
 
-      // Reset key fields
+      // Reset key fields (but keep prefs)
       setForm((prev) => ({
         ...prev,
         year: "",
@@ -214,17 +242,6 @@ const CompatibilityPage: NextPage = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleAffiliateClick = (ideaType: string, vendor: AffiliateVendor) => {
-    trackEvent("affiliate_click", {
-      upgrade_type: form.upgrade || ideaType,
-      vehicle_year: form.year,
-      vehicle_make: form.make,
-      vehicle_model: form.model,
-      vehicle_trim: form.trim,
-      vendor,
-    });
   };
 
   return (
@@ -575,7 +592,7 @@ const CompatibilityPage: NextPage = () => {
                               </span>
                             </p>
 
-                            {/* Monetized CTA */}
+                            {/* Monetized CTA via affiliate router */}
                             {(() => {
                               const vendor = chooseVendor(idea.type || "");
                               const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
@@ -590,7 +607,11 @@ const CompatibilityPage: NextPage = () => {
                                   target="_blank"
                                   rel="noreferrer"
                                   onClick={() =>
-                                    handleAffiliateClick(idea.type, vendor)
+                                    handleAffiliateClick(
+                                      idea.type,
+                                      vendor,
+                                      idea.priceBand
+                                    )
                                   }
                                   className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
                                 >
@@ -600,6 +621,8 @@ const CompatibilityPage: NextPage = () => {
                                     "Shop this direction on Tire Rack"}
                                   {vendor === "summit" &&
                                     "Shop this direction on Summit Racing"}
+                                  {vendor === "realtruck" &&
+                                    "Shop this direction on RealTruck"}
                                 </a>
                               );
                             })()}
