@@ -1,7 +1,8 @@
+
 // src/pages/api/out.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
-type Vendor = "amazon" | "tirerack" | "summit" | "realtruck";
+type Vendor = "amazon" | "tirerack" | "realtruck";
 
 /**
  * Build an Amazon search URL with your affiliate tag.
@@ -15,31 +16,24 @@ const buildAmazonUrl = (keywords: string) => {
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const { vendor, q } = req.query;
 
-  const v = (vendor as string | undefined)?.toLowerCase() as Vendor | undefined;
+  const v = (vendor as string | undefined)?.toLowerCase() as
+    | Vendor
+    | undefined;
   const keywords = (q as string | undefined) || "auto upgrade";
 
   let targetUrl: string;
 
   switch (v) {
     case "tirerack": {
-      // Set this when Tire Rack approves you (CJ link)
+      // When Tire Rack approves, set NEXT_PUBLIC_TIRERACK_URL to your CJ affiliate link
       const tireRackBase =
         process.env.NEXT_PUBLIC_TIRERACK_URL || "https://www.tirerack.com/";
       targetUrl = tireRackBase;
       break;
     }
 
-    case "summit": {
-      // Set this when Summit approves you
-      const summitBase =
-        process.env.NEXT_PUBLIC_SUMMIT_URL ||
-        "https://www.summitracing.com/";
-      targetUrl = summitBase;
-      break;
-    }
-
     case "realtruck": {
-      // When Sovrn/RealTruck is live, set NEXT_PUBLIC_REALTRUCK_URL
+      // When Sovrn/RealTruck approves, set NEXT_PUBLIC_REALTRUCK_URL
       const realTruckBase =
         process.env.NEXT_PUBLIC_REALTRUCK_URL || "https://realtruck.com/";
       targetUrl = realTruckBase;
@@ -53,14 +47,12 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // Basic safety fallback
   if (!targetUrl) {
     targetUrl = buildAmazonUrl(keywords);
   }
 
-  // Temporary debug logging (shows in Vercel logs)
+  // Optional debug:
   // console.log("[/api/out] redirecting", { vendor: v, keywords, targetUrl });
 
-  // 302 = temporary redirect, safer for changing links later
   res.redirect(302, targetUrl);
 }

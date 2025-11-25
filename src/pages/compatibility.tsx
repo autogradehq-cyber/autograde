@@ -11,9 +11,8 @@ const trackEvent = (eventName: string, params?: Record<string, any>) => {
   // @ts-ignore
   window.gtag("event", eventName, params || {});
 };
-
 // ---- Affiliate helpers ----
-type AffiliateVendor = "amazon" | "tirerack" | "summit" | "realtruck";
+type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
 const chooseVendor = (ideaType: string): AffiliateVendor => {
   const t = (ideaType || "").toLowerCase();
@@ -21,25 +20,25 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
   // Tires / wheels → Tire Rack
   if (t.includes("tire") || t.includes("wheel")) return "tirerack";
 
-  // Lift / suspension / shocks → Summit Racing
-  if (t.includes("lift") || t.includes("suspension") || t.includes("shock"))
-    return "summit";
-
-  // Truck accessories (future RealTruck) – tonneau, steps, etc.
+  // Truck accessories → RealTruck (once Sovrn approves)
   if (
     t.includes("tonneau") ||
     t.includes("bed cover") ||
     t.includes("running board") ||
-    t.includes("step") ||
-    t.includes("nerf bar")
+    t.includes("nerf bar") ||
+    t.includes("step")
   ) {
     return "realtruck";
   }
 
-  // Everything else → Amazon
+  // Everything else (including lifts & suspension) → Amazon for now
+  if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
+    return "amazon";
+  }
+
+  // Default fallback
   return "amazon";
 };
-
 const buildAffiliateUrl = (
   vendor: AffiliateVendor,
   keywords: string
@@ -614,15 +613,11 @@ const CompatibilityPage: NextPage = () => {
                                     )
                                   }
                                   className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                                >
-                                  {vendor === "amazon" &&
-                                    "Shop this direction on Amazon"}
-                                  {vendor === "tirerack" &&
-                                    "Shop this direction on Tire Rack"}
-                                  {vendor === "summit" &&
-                                    "Shop this direction on Summit Racing"}
-                                  {vendor === "realtruck" &&
-                                    "Shop this direction on RealTruck"}
+                                >{vendor === "amazon" && "Shop this direction on Amazon"}
+{vendor === "tirerack" && "Shop this direction on Tire Rack"}
+{vendor === "realtruck" && "Shop this direction on RealTruck"}
+
+                                 
                                 </a>
                               );
                             })()}
