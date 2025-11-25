@@ -2,15 +2,20 @@
 import React, { useState, FormEvent } from "react";
 import type { NextPage } from "next";
 import type { UpgradeRecommendation } from "./api/recommendations";
-
 // ---- GA4 helper ----
 const trackEvent = (eventName: string, params?: Record<string, any>) => {
   if (typeof window === "undefined") return;
   // @ts-ignore
   if (typeof window.gtag !== "function") return;
+
+  // Force debug_mode so events always show in DebugView
   // @ts-ignore
-  window.gtag("event", eventName, params || {});
+  window.gtag("event", eventName, {
+    ...(params || {}),
+    debug_mode: true,
+  });
 };
+
 // ---- Affiliate helpers ----
 type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
@@ -123,27 +128,72 @@ const CompatibilityPage: NextPage = () => {
       value: estimatedValue,
       currency: "USD",
     });
-  };
+    };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setStatus("idle");
-    setMessage("");
-    setAiRecommendation(null);
+const handleSubmit = async (e: FormEvent) => {
+  e.preventDefault();
+  setStatus("idle");
+  setMessage("");
+  setAiRecommendation(null);
 
-    const { year, make, model, trim, upgrade, email } = form;
+  const { year, make, model, trim, upgrade, email } = form;
 
-    if (!year || !make || !model || !upgrade || !email) {
-      setStatus("error");
-      setMessage("Please fill in year, make, model, upgrade, and email.");
-      return;
+  if (!year || !make || !model || !upgrade || !email) {
+    setStatus("error");
+    setMessage("Please fill in year, make, model, upgrade, and email.");
+    return;
+  }
+
+  // 🔹 NEW: track form_start in GA4
+  trackEvent("form_start", {
+    form_type: "compatibility",
+    upgrade_type: upgrade,
+    vehicle_year: year,
+    vehicle_make: make,
+    vehicle_model: model,
+    vehicle_trim: trim,
+  });
+
+  setIsSubmitting(true);
+
+  try {
+    // 1) Compatibility API (email + lead)
+    const compatRes = await fetch("/api/compatibility", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        year,
+        make,
+        model,
+        trim,
+        upgrade,
+        email,
+      }),
+    });
+
+    if (!compatRes.ok) {
+      throw new Error("Compatibility request failed");
     }
 
-    setIsSubmitting(true);
+    // Track generate_lead in GA4
+    trackEvent("generate_lead", {
+      form_type: "compatibility",
+      upgrade_type: upgrade,
+      vehicle_year: year,
+      vehicle_make: make,
+      vehicle_model: model,
+      vehicle_trim: trim,
+    });
 
+    setStatus("success");
+    setMessage(
+      "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
+    );
+
+    // 2) AI recommendations (non-blocking)
+    setAiLoading(true);
     try {
-      // 1) Compatibility API (email + lead)
-      const compatRes = await fetch("/api/compatibility", {
+      const aiRes = await fetch("/api/recommendations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -151,97 +201,62 @@ const CompatibilityPage: NextPage = () => {
           make,
           model,
           trim,
-          upgrade,
+          upgradeType: upgrade,
+          drivingStyle: form.drivingStyle,
+          budgetLevel: form.budgetLevel,
+          priorities: form.priorities,
           email,
         }),
       });
 
-      if (!compatRes.ok) {
-        throw new Error("Compatibility request failed");
-      }
+      if (aiRes.ok) {
+        const data = (await aiRes.json()) as {
+          ok: boolean;
+          recommendation?: UpgradeRecommendation;
+        };
 
-      // Track generate_lead in GA4
-      trackEvent("generate_lead", {
-        form_type: "compatibility",
-        upgrade_type: upgrade,
-        vehicle_year: year,
-        vehicle_make: make,
-        vehicle_model: model,
-        vehicle_trim: trim,
-      });
-
-      setStatus("success");
-      setMessage(
-        "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
-      );
-
-      // 2) AI recommendations (non-blocking)
-      setAiLoading(true);
-      try {
-        const aiRes = await fetch("/api/recommendations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            year,
-            make,
-            model,
-            trim,
-            upgradeType: upgrade,
-            drivingStyle: form.drivingStyle,
-            budgetLevel: form.budgetLevel,
-            priorities: form.priorities,
-            email,
-          }),
-        });
-
-        if (aiRes.ok) {
-          const data = (await aiRes.json()) as {
-            ok: boolean;
-            recommendation?: UpgradeRecommendation;
-          };
-
-          if (data.ok && data.recommendation) {
-            setAiRecommendation(data.recommendation);
-          } else {
-            console.warn(
-              "[compatibility] AI response did not include recommendation"
-            );
-          }
+        if (data.ok && data.recommendation) {
+          setAiRecommendation(data.recommendation);
         } else {
           console.warn(
-            "[compatibility] AI request failed with status",
-            aiRes.status
+            "[compatibility] AI response did not include recommendation"
           );
         }
-      } catch (err) {
-        console.error(
-          "[compatibility] Error calling AI recommendation API:",
-          err
+      } else {
+        console.warn(
+          "[compatibility] AI request failed with status",
+          aiRes.status
         );
-      } finally {
-        setAiLoading(false);
       }
-
-      // Reset key fields (but keep prefs)
-      setForm((prev) => ({
-        ...prev,
-        year: "",
-        make: "",
-        model: "",
-        trim: "",
-        upgrade: "",
-        email: "",
-      }));
     } catch (err) {
-      console.error("[compatibility] Error submitting form:", err);
-      setStatus("error");
-      setMessage(
-        "Something went wrong submitting your request. Please try again in a moment."
+      console.error(
+        "[compatibility] Error calling AI recommendation API:",
+        err
       );
     } finally {
-      setIsSubmitting(false);
+      setAiLoading(false);
     }
-  };
+
+    // Reset key fields (but keep prefs)
+    setForm((prev) => ({
+      ...prev,
+      year: "",
+      make: "",
+      model: "",
+      trim: "",
+      upgrade: "",
+      email: "",
+    }));
+  } catch (err) {
+    console.error("[compatibility] Error submitting form:", err);
+    setStatus("error");
+    setMessage(
+      "Something went wrong submitting your request. Please try again in a moment."
+    );
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
