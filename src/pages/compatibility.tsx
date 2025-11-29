@@ -125,7 +125,7 @@ const CompatibilityPage: NextPage = () => {
       vehicle_trim: form.trim,
       vendor,
       price_band: priceBand,
-      value: estimatedValue,
+      affiliate_value: estimatedValue,
       currency: "USD",
     });
     };
