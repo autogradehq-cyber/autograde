@@ -1,4 +1,3 @@
-
 // src/pages/api/out.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
@@ -13,6 +12,16 @@ const buildAmazonUrl = (keywords: string) => {
   return tag ? `${base}&tag=${encodeURIComponent(tag)}` : base;
 };
 
+/**
+ * Get the Tire Rack affiliate link.
+ * Uses NEXT_PUBLIC_TIRERACK_URL (CJ link).
+ */
+const getTireRackUrl = () => {
+  const home = process.env.NEXT_PUBLIC_TIRERACK_URL;
+  if (!home) return "https://www.tirerack.com/";
+  return home;
+};
+
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const { vendor, q } = req.query;
 
@@ -25,10 +34,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   switch (v) {
     case "tirerack": {
-      // When Tire Rack approves, set NEXT_PUBLIC_TIRERACK_URL to your CJ affiliate link
-      const tireRackBase =
-        process.env.NEXT_PUBLIC_TIRERACK_URL || "https://www.tirerack.com/";
-      targetUrl = tireRackBase;
+      targetUrl = getTireRackUrl();
       break;
     }
 
@@ -50,9 +56,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!targetUrl) {
     targetUrl = buildAmazonUrl(keywords);
   }
-
-  // Optional debug:
-  // console.log("[/api/out] redirecting", { vendor: v, keywords, targetUrl });
 
   res.redirect(302, targetUrl);
 }
