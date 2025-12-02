@@ -126,6 +126,7 @@ const CompatibilityPage: NextPage = () => {
       vendor,
       price_band: priceBand,
       affiliate_value: estimatedValue,
+      value: estimatedValue,
       currency: "USD",
     });
     };
@@ -495,73 +496,91 @@ const handleSubmit = async (e: FormEvent) => {
                 </p>
               )}
 
-              {!aiLoading && aiRecommendation && (
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Overview
-                    </p>
-                    <p className="text-xs text-slate-300">
-                      {aiRecommendation.overview}
-                    </p>
-                  </div>
+            {!aiLoading && aiRecommendation && (
+  <div className="space-y-4">
+    <div>
+      <p className="text-xs font-semibold text-slate-300 mb-1">
+        Overview
+      </p>
+      <p className="text-xs text-slate-300">
+        {aiRecommendation.overview}
+      </p>
+    </div>
 
-                  <div className="grid grid-cols-3 gap-3 text-[11px]">
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Fitment</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.fitmentConfidence}/100
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Value</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.valueScore}/100
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Performance</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.performanceImpact}/100
-                      </p>
-                    </div>
-                  </div>
+    <div className="grid grid-cols-3 gap-3 text-[11px]">
+      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+        <p className="text-slate-400 mb-0.5">Fitment</p>
+        <p className="text-slate-50 font-semibold">
+          {aiRecommendation.fitmentConfidence}/100
+        </p>
+      </div>
+      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+        <p className="text-slate-400 mb-0.5">Value</p>
+        <p className="text-slate-50 font-semibold">
+          {aiRecommendation.valueScore}/100
+        </p>
+      </div>
+      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+        <p className="text-slate-400 mb-0.5">Performance</p>
+        <p className="text-slate-50 font-semibold">
+          {aiRecommendation.performanceImpact}/100
+        </p>
+      </div>
+    </div>
 
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Risk &amp; decision
-                    </p>
-                    <p className="text-[11px] text-slate-400 mb-1">
-                      Risk level:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {aiRecommendation.riskLevel}
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      Recommendation:{" "}
-                      <span className="font-semibold text-cyan-300">
-                        {aiRecommendation.buyRecommendation === "buy_now"
-                          ? "Good to move forward."
-                          : aiRecommendation.buyRecommendation ===
-                            "consider_alternatives"
-                          ? "Worth considering, with a few caveats."
-                          : "Not recommended in most cases."}
-                      </span>
-                    </p>
-                  </div>
+    <div>
+      <p className="text-xs font-semibold text-slate-300 mb-1">
+        Risk &amp; decision
+      </p>
+      <p className="text-[11px] text-slate-400 mb-1">
+        Risk level:{" "}
+        <span className="font-semibold text-slate-100">
+          {aiRecommendation.riskLevel}
+        </span>
+      </p>
+      <p className="text-[11px] text-slate-300">
+        {aiRecommendation.decisionSummary}
+      </p>
+    </div>
 
-                  {aiRecommendation.keyBenefits?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Key benefits
-                      </p>
-                      <ul className="text-[11px] text-slate-400 list-disc list-inside space-y-1">
-                        {aiRecommendation.keyBenefits.map((b, idx) => (
-                          <li key={idx}>{b}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+    {/* Affiliate CTA */}
+    <div className="pt-3 border-t border-slate-800">
+      {(() => {
+        // Use the user’s requested upgrade text as the keyword
+        const ideaType =
+          form.upgrade || aiRecommendation.overview || "recommended upgrade";
+
+        // Choose vendor based on the idea text
+        const vendor = chooseVendor(ideaType);
+
+        // Price band from AI if available; otherwise midrange
+        const priceBand =
+          ((aiRecommendation as any).priceBand as
+            | "budget"
+            | "midrange"
+            | "premium") || "midrange";
+
+        // Build redirect URL to /api/out
+        const affiliateUrl = buildAffiliateUrl(vendor, ideaType);
+
+        return (
+          <button
+            type="button"
+            onClick={() => {
+              handleAffiliateClick(ideaType, vendor, priceBand);
+              // After tracking, send user to the affiliate redirect
+              window.location.href = affiliateUrl;
+            }}
+            className="w-full rounded-lg bg-cyan-500 text-slate-950 text-xs font-semibold py-2 mt-1 hover:bg-cyan-400 transition"
+          >
+            View this upgrade on{" "}
+            {vendor === "tirerack" ? "Tire Rack" : "Amazon"}
+          </button>
+        );
+      })()}
+    </div>
+  </div>
+)}
 
                   {aiRecommendation.potentialIssues?.length > 0 && (
                     <div>
