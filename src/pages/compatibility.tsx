@@ -86,7 +86,7 @@ const estimateValueFromPriceBand = (
 ) => {
   switch (priceBand) {
     case "budget":
-      return 150;
+      return 150; // rough average cart
     case "midrange":
       return 500;
     case "premium":
@@ -292,8 +292,195 @@ const CompatibilityPage: NextPage = () => {
         <div className="grid gap-8 lg:grid-cols-[3fr,2fr] items-start">
           {/* FORM SECTION */}
           <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6">
-            {/* form omitted for brevity – keep exactly what you already have here */}
-            {/* ... */}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="year"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Year*
+                  </label>
+                  <input
+                    id="year"
+                    name="year"
+                    type="text"
+                    value={form.year}
+                    onChange={handleChange}
+                    placeholder="e.g. 2019"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="make"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Make*
+                  </label>
+                  <input
+                    id="make"
+                    name="make"
+                    type="text"
+                    value={form.make}
+                    onChange={handleChange}
+                    placeholder="e.g. Toyota"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="model"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Model*
+                  </label>
+                  <input
+                    id="model"
+                    name="model"
+                    type="text"
+                    value={form.model}
+                    onChange={handleChange}
+                    placeholder="e.g. Tacoma"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="trim"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Trim (optional)
+                  </label>
+                  <input
+                    id="trim"
+                    name="trim"
+                    type="text"
+                    value={form.trim}
+                    onChange={handleChange}
+                    placeholder="e.g. TRD Off-Road"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="upgrade"
+                  className="block text-xs font-medium text-slate-300 mb-1"
+                >
+                  What upgrade are you considering?*
+                </label>
+                <input
+                  id="upgrade"
+                  name="upgrade"
+                  type="text"
+                  value={form.upgrade}
+                  onChange={handleChange}
+                  placeholder='e.g. 2" lift and 285/70R17 all-terrain tires'
+                  className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label
+                    htmlFor="drivingStyle"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Driving style (optional)
+                  </label>
+                  <input
+                    id="drivingStyle"
+                    name="drivingStyle"
+                    type="text"
+                    value={form.drivingStyle}
+                    onChange={handleChange}
+                    placeholder="e.g. daily, light off-road"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="budgetLevel"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Budget level (optional)
+                  </label>
+                  <input
+                    id="budgetLevel"
+                    name="budgetLevel"
+                    type="text"
+                    value={form.budgetLevel}
+                    onChange={handleChange}
+                    placeholder="e.g. budget, midrange, premium"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="priorities"
+                    className="block text-xs font-medium text-slate-300 mb-1"
+                  >
+                    Top priority (optional)
+                  </label>
+                  <input
+                    id="priorities"
+                    name="priorities"
+                    type="text"
+                    value={form.priorities}
+                    onChange={handleChange}
+                    placeholder="e.g. comfort, towing, mpg"
+                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="email"
+                  className="block text-xs font-medium text-slate-300 mb-1"
+                >
+                  Email to send your breakdown to*
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  placeholder="you@example.com"
+                  className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full inline-flex items-center justify-center rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSubmitting
+                  ? "Submitting your details..."
+                  : "Run compatibility check"}
+              </button>
+
+              {status === "success" && (
+                <p className="text-xs text-emerald-400">{message}</p>
+              )}
+              {status === "error" && (
+                <p className="text-xs text-red-400">{message}</p>
+              )}
+
+              <p className="text-[11px] text-slate-500">
+                We&apos;ll never sell your data. Your email is only used for
+                sending this upgrade breakdown and optional follow-ups.
+              </p>
+            </form>
           </section>
 
           {/* AI RECOMMENDATION */}
@@ -324,8 +511,169 @@ const CompatibilityPage: NextPage = () => {
 
               {!aiLoading && aiRecommendation && (
                 <div className="space-y-4">
-                  {/* overview, scores, risk, CTAs, etc. */}
-                  {/* make sure every <div> has a matching </div> here */}
+                  <div>
+                    <p className="text-xs font-semibold text-slate-300 mb-1">
+                      Overview
+                    </p>
+                    <p className="text-xs text-slate-300">
+                      {aiRecommendation.overview}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 text-[11px]">
+                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+                      <p className="text-slate-400 mb-0.5">Fitment</p>
+                      <p className="text-slate-50 font-semibold">
+                        {aiRecommendation.fitmentConfidence}/100
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+                      <p className="text-slate-400 mb-0.5">Value</p>
+                      <p className="text-slate-50 font-semibold">
+                        {aiRecommendation.valueScore}/100
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
+                      <p className="text-slate-400 mb-0.5">Performance</p>
+                      <p className="text-slate-50 font-semibold">
+                        {aiRecommendation.performanceImpact}/100
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-300 mb-1">
+                      Risk &amp; decision
+                    </p>
+                    <p className="text-[11px] text-slate-400 mb-1">
+                      Risk level:{" "}
+                      <span className="font-semibold text-slate-100">
+                        {aiRecommendation.riskLevel}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      {(aiRecommendation as any).decisionSummary ??
+                        (aiRecommendation as any).decision ??
+                        ""}
+                    </p>
+                  </div>
+
+                  {/* Main affiliate CTA */}
+                  <div className="pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleAffiliateClick(
+                          ideaTypeForAffiliate,
+                          affiliateVendor,
+                          affiliatePriceBand
+                        );
+                        if (typeof window !== "undefined") {
+                          window.location.href = affiliateUrl;
+                        }
+                      }}
+                      className="w-full rounded-lg bg-cyan-500 text-slate-950 text-xs font-semibold py-2 mt-1 hover:bg-cyan-400 transition"
+                    >
+                      View this upgrade on{" "}
+                      {affiliateVendor === "tirerack"
+                        ? "Tire Rack"
+                        : affiliateVendor === "realtruck"
+                        ? "RealTruck"
+                        : "Amazon"}
+                    </button>
+                  </div>
+
+                  {aiRecommendation.potentialIssues?.length ? (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-300 mb-1">
+                        Potential issues
+                      </p>
+                      <ul className="text-[11px] text-slate-400 list-disc list-inside space-y-1">
+                        {aiRecommendation.potentialIssues.map((issue, idx) => (
+                          <li key={idx}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {aiRecommendation.recommendedUpgradeIdeas?.length ? (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-300 mb-1">
+                        Suggested upgrade direction
+                      </p>
+                      {aiRecommendation.recommendedUpgradeIdeas.map(
+                        (idea, idx) => {
+                          const vendor = chooseVendor(idea.type || "");
+                          const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
+                          const href = buildAffiliateUrl(
+                            vendor,
+                            keywords || form.upgrade || "auto upgrade"
+                          );
+                          const priceBand =
+                            (idea.priceBand as
+                              | "budget"
+                              | "midrange"
+                              | "premium") || "midrange";
+
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 mb-2"
+                            >
+                              <p className="text-xs font-semibold text-slate-100">
+                                {idea.name}
+                              </p>
+                              <p className="text-[11px] text-slate-400 mb-1">
+                                {idea.summary}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Price band:{" "}
+                                <span className="text-slate-200">
+                                  {idea.priceBand}
+                                </span>
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Example approach:{" "}
+                                <span className="text-slate-200">
+                                  {idea.examplePartHint}
+                                </span>
+                              </p>
+
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() =>
+                                  handleAffiliateClick(
+                                    idea.type || idea.name,
+                                    vendor,
+                                    priceBand
+                                  )
+                                }
+                                className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                              >
+                                {vendor === "amazon" &&
+                                  "Shop this direction on Amazon"}
+                                {vendor === "tirerack" &&
+                                  "Shop this direction on Tire Rack"}
+                                {vendor === "realtruck" &&
+                                  "Shop this direction on RealTruck"}
+                              </a>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-300 mb-1">
+                      In plain language
+                    </p>
+                    <p className="text-xs text-slate-300">
+                      {aiRecommendation.shortExplanation}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
