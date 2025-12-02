@@ -8,19 +8,19 @@ const openai = new OpenAI({
 
 export type BestUpgradeIdea = {
   name: string;
-  type: string; // e.g. "all-terrain tires", "leveling kit"
+  type: string;
   summary: string;
   priceBand: "budget" | "midrange" | "premium";
   examplePartHint: string;
-  bestFor: string; // e.g. "daily driver", "heavy towing"
+  bestFor: string;
   potentialIssues: string[];
 };
 
 export type BestUpgradeCategory = {
-  id: string; // e.g. "tires", "suspension"
-  label: string; // human heading
-  priorityRank: number; // 1 = do this first
-  rationale: string; // why this category matters for this vehicle
+  id: string;
+  label: string;
+  priorityRank: number;
+  rationale: string;
   recommendedBudgetBand: "budget" | "midrange" | "premium";
   riskLevel: "low" | "medium" | "high";
   ideas: BestUpgradeIdea[];
@@ -35,10 +35,14 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  // Allow both GET and POST to avoid 405 issues
+  if (req.method !== "POST" && req.method !== "GET") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  // Support both body (POST) and query (GET)
+  const source: any = req.method === "POST" ? req.body : req.query;
 
   const {
     year,
@@ -48,7 +52,7 @@ export default async function handler(
     drivingStyle,
     budgetLevel,
     priorities,
-  } = req.body || {};
+  } = source || {};
 
   if (!year || !make || !model) {
     return res.status(400).json({
@@ -83,9 +87,9 @@ export default async function handler(
           role: "system",
           content: [
             "You are AutoGrade, an automotive upgrade advisor.",
-            "You help users decide which upgrades are *actually worth doing* for their specific vehicle.",
+            "You help users decide which upgrades are actually worth doing for their specific vehicle.",
             "You MUST answer with a single JSON object with a `categories` array.",
-            "Each category is a high-level upgrade area like tires, suspension, brakes, lighting, armor, towing, reliability, interior comfort, etc.",
+            "Each category is a high-level upgrade area like tires, suspension, brakes, lighting, towing, reliability, interior comfort, etc.",
             "You are not allowed to claim live pricing or live inventory; use patterns and typical setups only.",
             "For fitment, give realistic cautions: rubbing, trimming, gearing, braking, towing, ride quality, legal issues, etc.",
           ].join(" "),
@@ -218,7 +222,6 @@ export default async function handler(
           cat.overallNote ||
           "Mention how to shop this category and what to double-check before buying.",
       }))
-      // sort by priorityRank ascending
       .sort((a, b) => a.priorityRank - b.priorityRank);
 
     return res.status(200).json({ ok: true, categories: sanitized });
