@@ -1,9 +1,9 @@
 // src/pages/best-upgrades.tsx
 import React, { useState, FormEvent } from "react";
 import type { NextPage } from "next";
-import type { UpgradeRecommendation } from "./api/recommendations";
+import type { BestUpgradeCategory } from "./api/bestupgrades";
 
-// ---- GA4 helper (same pattern as compatibility.tsx) ----
+// ---- GA4 helper ----
 const trackEvent = (eventName: string, params?: Record<string, any>) => {
   if (typeof window === "undefined") return;
   // @ts-ignore
@@ -17,7 +17,7 @@ const trackEvent = (eventName: string, params?: Record<string, any>) => {
   });
 };
 
-// ---- Affiliate helpers (reuse same logic as compatibility.tsx) ----
+// ---- Affiliate helpers (same style as compatibility.tsx) ----
 type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
 const chooseVendor = (ideaType: string): AffiliateVendor => {
@@ -37,12 +37,12 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
     return "realtruck";
   }
 
-  // Lifts / suspension → Amazon for now
+  // Lifts / suspension / shocks → Amazon
   if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
     return "amazon";
   }
 
-  // Default fallback → Amazon
+  // Default fallback
   return "amazon";
 };
 
@@ -54,6 +54,21 @@ const buildAffiliateUrl = (
   params.set("vendor", vendor);
   params.set("q", keywords || "auto upgrade");
   return `/api/out?${params.toString()}`;
+};
+
+const estimateValueFromPriceBand = (
+  priceBand: "budget" | "midrange" | "premium"
+) => {
+  switch (priceBand) {
+    case "budget":
+      return 150;
+    case "midrange":
+      return 500;
+    case "premium":
+      return 1200;
+    default:
+      return 300;
+  }
 };
 
 // ---- Form state ----
@@ -77,34 +92,14 @@ const initialForm: FormState = {
   priorities: "",
 };
 
-// Rough cart value bands for revenue modeling
-const estimateValueFromPriceBand = (
-  priceBand: "budget" | "midrange" | "premium"
-) => {
-  switch (priceBand) {
-    case "budget":
-      return 150;
-    case "midrange":
-      return 500;
-    case "premium":
-      return 1200;
-    default:
-      return 300;
-  }
-};
-
-// Best Upgrades page
 const BestUpgradesPage: NextPage = () => {
   const [form, setForm] = useState<FormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState<string>("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiRecommendation, setAiRecommendation] =
-    useState<UpgradeRecommendation | null>(null);
-
-  // Optional: which “upgrade category” the user is browsing
-  const [upgradeCategory, setUpgradeCategory] = useState<string>("tires");
+  const [categories, setCategories] = useState<BestUpgradeCategory[] | null>(
+    null
+  );
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -114,7 +109,7 @@ const BestUpgradesPage: NextPage = () => {
   };
 
   const handleAffiliateClick = (
-    ideaType: string,
+    ideaLabel: string,
     vendor: AffiliateVendor,
     priceBand: "budget" | "midrange" | "premium"
   ) => {
@@ -122,7 +117,7 @@ const BestUpgradesPage: NextPage = () => {
 
     trackEvent("affiliate_click", {
       page_type: "best_upgrades",
-      upgrade_type: ideaType,
+      upgrade_type: ideaLabel,
       vehicle_year: form.year,
       vehicle_make: form.make,
       vehicle_model: form.model,
@@ -139,9 +134,9 @@ const BestUpgradesPage: NextPage = () => {
     e.preventDefault();
     setStatus("idle");
     setMessage("");
-    setAiRecommendation(null);
+    setCategories(null);
 
-    const { year, make, model, trim } = form;
+    const { year, make, model } = form;
 
     if (!year || !make || !model) {
       setStatus("error");
@@ -149,97 +144,58 @@ const BestUpgradesPage: NextPage = () => {
       return;
     }
 
-    // Track that a user started a “best upgrades” lookup
-    trackEvent("form_start", {
-      form_type: "best_upgrades",
-      upgrade_category: upgradeCategory,
+    trackEvent("best_upgrades_lookup", {
       vehicle_year: year,
       vehicle_make: make,
       vehicle_model: model,
-      vehicle_trim: trim,
+      vehicle_trim: form.trim,
+      driving_style: form.drivingStyle,
+      budget_level: form.budgetLevel,
+      priorities: form.priorities,
     });
 
     setIsSubmitting(true);
-    setAiLoading(true);
 
     try {
-      // Use your existing AI recommendations API.
-      // We describe the upgrade as a “best X for this vehicle” query.
-      const upgradeTypePrompt = (() => {
-        switch (upgradeCategory) {
-          case "tires":
-            return "best all-terrain tires for this vehicle";
-          case "wheels":
-            return "best wheel and tire combo for this vehicle";
-          case "suspension":
-            return "best mild lift or leveling kit for this vehicle";
-          case "brakes":
-            return "best brake upgrade for this vehicle";
-          case "lighting":
-            return "best lighting upgrade for this vehicle (headlights or fogs)";
-          default:
-            return "best overall upgrade package for this vehicle";
-        }
-      })();
-
-      const aiRes = await fetch("/api/recommendations", {
+      const res = await fetch("/api/bestupgrades", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          year,
-          make,
-          model,
-          trim,
-          upgradeType: upgradeTypePrompt,
-          drivingStyle: form.drivingStyle,
-          budgetLevel: form.budgetLevel,
-          priorities: form.priorities,
-          // NOTE: no email required here – this page is for browsing.
-          email: null,
-          source: "best_upgrades_page",
-        }),
+        body: JSON.stringify(form),
       });
 
-      if (!aiRes.ok) {
-        throw new Error("AI recommendation request failed");
+      if (!res.ok) {
+        throw new Error("Best upgrades request failed");
       }
 
-      const data = (await aiRes.json()) as {
+      const data = (await res.json()) as {
         ok: boolean;
-        recommendation?: UpgradeRecommendation;
+        categories?: BestUpgradeCategory[];
+        error?: string;
       };
 
-      if (data.ok && data.recommendation) {
-        setAiRecommendation(data.recommendation);
-        setStatus("success");
-        setMessage("");
-      } else {
+      if (!data.ok || !data.categories) {
         setStatus("error");
-        setMessage("We couldn’t generate a recommendation. Please try again.");
+        setMessage(
+          data.error || "We couldn’t generate upgrades. Please try again."
+        );
+      } else {
+        setCategories(data.categories);
+        setStatus("success");
       }
     } catch (err) {
-      console.error("[best-upgrades] Error calling AI recommendations:", err);
+      console.error("[best-upgrades] Error:", err);
       setStatus("error");
       setMessage(
         "Something went wrong generating upgrades. Please try again in a moment."
       );
     } finally {
       setIsSubmitting(false);
-      setAiLoading(false);
     }
   };
 
-  // Derived values for main CTA
-  const ideaTypeForAffiliate =
-    aiRecommendation?.overview ||
-    `${upgradeCategory} upgrade for ${form.year} ${form.make} ${form.model}`;
-  const affiliateVendor = chooseVendor(ideaTypeForAffiliate);
-  const affiliatePriceBand =
-    ((aiRecommendation as any)?.priceBand as
-      | "budget"
-      | "midrange"
-      | "premium") || "midrange";
-  const affiliateUrl = buildAffiliateUrl(affiliateVendor, ideaTypeForAffiliate);
+  const vehicleLabel = [form.year, form.make, form.model]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -249,17 +205,18 @@ const BestUpgradesPage: NextPage = () => {
             AutoGrade Best Upgrades
           </p>
           <h1 className="text-2xl sm:text-3xl font-semibold text-slate-50 mb-2">
-            See the best upgrades for your vehicle, backed by real-world data.
+            See the best upgrades for your vehicle — before you spend the money.
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-2xl">
-            Choose your vehicle and an upgrade category. We&apos;ll analyze
-            fitment confidence, real-world feedback, and value to surface the
-            best upgrade directions, then send you straight to vetted options.
+            Enter your vehicle and a bit about how you drive. We&apos;ll suggest
+            the highest-impact upgrades first, with fitment notes, tradeoffs,
+            and links to shop from retailers that specialize in each type of
+            part.
           </p>
         </header>
 
         <div className="grid gap-8 lg:grid-cols-[3fr,2fr] items-start">
-          {/* LEFT: Vehicle + category form */}
+          {/* LEFT: Vehicle + preferences form */}
           <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6">
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -336,35 +293,6 @@ const BestUpgradesPage: NextPage = () => {
                 </div>
               </div>
 
-              {/* Upgrade category pills */}
-              <div>
-                <p className="block text-xs font-medium text-slate-300 mb-1">
-                  Upgrade category
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {["tires", "wheels", "suspension", "brakes", "lighting"].map(
-                    (cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setUpgradeCategory(cat)}
-                        className={`px-3 py-1.5 rounded-full text-[11px] border ${
-                          upgradeCategory === cat
-                            ? "bg-cyan-500 text-slate-950 border-cyan-400"
-                            : "bg-slate-950/60 text-slate-300 border-slate-700 hover:border-cyan-400/60"
-                        }`}
-                      >
-                        {cat[0].toUpperCase() + cat.slice(1)}
-                      </button>
-                    )
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  We will generate the best upgrade direction in this category
-                  for your specific vehicle.
-                </p>
-              </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label
@@ -434,129 +362,82 @@ const BestUpgradesPage: NextPage = () => {
               {status === "error" && (
                 <p className="text-xs text-red-400">{message}</p>
               )}
-            </form>
 
-            <p className="mt-3 text-[11px] text-slate-500">
-              Fitment confidence is based on patterns from similar vehicles,
-              reported real-world installs, and vendor data where available.
-              Always double-check exact part numbers before you buy.
-            </p>
+              <p className="mt-3 text-[11px] text-slate-500">
+                We&apos;ll suggest a sensible order to upgrade in, plus fitment
+                notes and tradeoffs. Always double-check exact part numbers
+                using the retailer&apos;s fitment tool before you buy.
+              </p>
+            </form>
           </section>
 
-          {/* RIGHT: AI recommendation & upgrade ideas */}
+          {/* RIGHT: Upgrade categories & cards */}
           <section className="space-y-4">
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-6">
               <h2 className="text-sm sm:text-base font-semibold text-slate-50 mb-1">
-                Best upgrades for your {form.year || "vehicle"}
+                Best upgrades for {vehicleLabel || "your vehicle"}
               </h2>
               <p className="text-xs text-slate-400 mb-3">
-                Once you run the search, we&apos;ll show an upgrade direction
-                and shopping links tuned for your specific vehicle.
+                We&apos;ll prioritize the upgrades that usually make the biggest
+                difference first. Click into a card to see why it matters and
+                where to shop.
               </p>
 
-              {aiLoading && (
+              {isSubmitting && (
                 <p className="text-xs text-cyan-300">
-                  Crunching the data for your setup… this usually takes a few
-                  seconds.
+                  Analyzing your vehicle and pulling upgrade directions…
                 </p>
               )}
 
-              {!aiLoading && !aiRecommendation && (
+              {!isSubmitting && !categories && status === "idle" && (
                 <p className="text-xs text-slate-500">
-                  Enter your vehicle and choose an upgrade category to see
-                  AutoGrade&apos;s best picks here.
+                  Enter your vehicle details on the left to see AutoGrade&apos;s
+                  recommended upgrade order here.
                 </p>
               )}
 
-              {!aiLoading && aiRecommendation && (
+              {!isSubmitting && categories && categories.length === 0 && (
+                <p className="text-xs text-slate-500">
+                  We couldn&apos;t confidently recommend upgrades for this
+                  setup. Try adjusting driving style or priorities.
+                </p>
+              )}
+
+              {!isSubmitting && categories && categories.length > 0 && (
                 <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Overview
-                    </p>
-                    <p className="text-xs text-slate-300">
-                      {aiRecommendation.overview}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 text-[11px]">
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Fitment</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.fitmentConfidence}/100
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Value</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.valueScore}/100
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-                      <p className="text-slate-400 mb-0.5">Performance</p>
-                      <p className="text-slate-50 font-semibold">
-                        {aiRecommendation.performanceImpact}/100
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Risk &amp; decision
-                    </p>
-                    <p className="text-[11px] text-slate-400 mb-1">
-                      Risk level:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {aiRecommendation.riskLevel}
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-slate-300">
-                      {(aiRecommendation as any).decisionSummary ??
-                        (aiRecommendation as any).decision ??
-                        ""}
-                    </p>
-                  </div>
-
-                  {/* Main affiliate CTA */}
-                  <div className="pt-3 border-t border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAffiliateClick(
-                          ideaTypeForAffiliate,
-                          affiliateVendor,
-                          affiliatePriceBand
-                        );
-                        if (typeof window !== "undefined") {
-                          window.location.href = affiliateUrl;
-                        }
-                      }}
-                      className="w-full rounded-lg bg-cyan-500 text-slate-950 text-xs font-semibold py-2 mt-1 hover:bg-cyan-400 transition"
+                  {categories.map((cat) => (
+                    <div
+                      key={cat.id}
+                      className="rounded-xl bg-slate-950/70 border border-slate-800 p-4"
                     >
-                      View this upgrade direction on{" "}
-                      {affiliateVendor === "tirerack"
-                        ? "Tire Rack"
-                        : affiliateVendor === "realtruck"
-                        ? "RealTruck"
-                        : "Amazon"}
-                    </button>
-                  </div>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            Priority {cat.priorityRank}
+                          </p>
+                          <h3 className="text-sm font-semibold text-slate-50">
+                            {cat.label}
+                          </h3>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="inline-flex items-center rounded-full bg-slate-900 border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300">
+                            Budget: {cat.recommendedBudgetBand}
+                          </span>
+                          <span className="inline-flex items-center rounded-full bg-slate-900 border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300">
+                            Risk: {cat.riskLevel}
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* Suggested upgrade ideas as cards */}
-                  {aiRecommendation.recommendedUpgradeIdeas?.length ? (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Suggested upgrade ideas
+                      <p className="text-[11px] text-slate-300 mb-2">
+                        {cat.rationale}
                       </p>
-                      <ul className="space-y-2">
-                        {aiRecommendation.recommendedUpgradeIdeas.map(
-                          (idea, idx) => {
-                            const vendor = chooseVendor(idea.type || "");
-                            const priceBand =
-                              (idea.priceBand as
-                                | "budget"
-                                | "midrange"
-                                | "premium") || "midrange";
+
+                      {cat.ideas?.length > 0 && (
+                        <div className="space-y-3 mt-2">
+                          {cat.ideas.map((idea, idx) => {
+                            const vendor = chooseVendor(idea.type || idea.name);
+                            const priceBand = idea.priceBand || "midrange";
                             const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
                             const href = buildAffiliateUrl(
                               vendor,
@@ -564,9 +445,9 @@ const BestUpgradesPage: NextPage = () => {
                             );
 
                             return (
-                              <li
+                              <div
                                 key={idx}
-                                className="rounded-lg bg-slate-950/60 border border-slate-800 p-3"
+                                className="rounded-lg bg-slate-950 border border-slate-800 p-3"
                               >
                                 <p className="text-xs font-semibold text-slate-100">
                                   {idea.name}
@@ -574,7 +455,13 @@ const BestUpgradesPage: NextPage = () => {
                                 <p className="text-[11px] text-slate-400 mb-1">
                                   {idea.summary}
                                 </p>
-                                <p className="text-[11px] text-slate-500">
+                                <p className="text-[11px] text-slate-500 mb-1">
+                                  Best for:{" "}
+                                  <span className="text-slate-200">
+                                    {idea.bestFor}
+                                  </span>
+                                </p>
+                                <p className="text-[11px] text-slate-500 mb-1">
                                   Price band:{" "}
                                   <span className="text-slate-200">
                                     {idea.priceBand}
@@ -587,34 +474,67 @@ const BestUpgradesPage: NextPage = () => {
                                   </span>
                                 </p>
 
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={() =>
-                                    handleAffiliateClick(
-                                      idea.type || idea.name,
-                                      vendor,
-                                      priceBand
-                                    )
-                                  }
-                                  className="inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                                >
-                                  {vendor === "amazon" &&
-                                    "Shop this idea on Amazon"}
-                                  {vendor === "tirerack" &&
-                                    "Shop this idea on Tire Rack"}
-                                  {vendor === "realtruck" &&
-                                    "Shop this idea on RealTruck"}
-                                </a>
-                              </li>
+                                {idea.potentialIssues?.length ? (
+                                  <div className="mb-2">
+                                    <p className="text-[10px] font-semibold text-slate-400 mb-0.5">
+                                      Things to watch for:
+                                    </p>
+                                    <ul className="text-[10px] text-slate-500 list-disc list-inside space-y-0.5">
+                                      {idea.potentialIssues.map(
+                                        (issue, issueIdx) => (
+                                          <li key={issueIdx}>{issue}</li>
+                                        )
+                                      )}
+                                    </ul>
+                                  </div>
+                                ) : null}
+
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  <a
+                                    href={href}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={() =>
+                                      handleAffiliateClick(
+                                        `${cat.label} - ${idea.name}`,
+                                        vendor,
+                                        priceBand
+                                      )
+                                    }
+                                    className="inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                                  >
+                                    {vendor === "amazon" &&
+                                      "Shop this idea on Amazon"}
+                                    {vendor === "tirerack" &&
+                                      "Shop this idea on Tire Rack"}
+                                    {vendor === "realtruck" &&
+                                      "Shop this idea on RealTruck"}
+                                  </a>
+                                  <a
+                                    href="/compatibility"
+                                    className="inline-flex items-center rounded-md border border-slate-700 px-3 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800/80 transition-colors"
+                                  >
+                                    Check detailed fitment first
+                                  </a>
+                                </div>
+                              </div>
                             );
-                          }
-                        )}
-                      </ul>
+                          })}
+                        </div>
+                      )}
+
+                      {cat.overallNote && (
+                        <p className="mt-3 text-[11px] text-slate-400">
+                          {cat.overallNote}
+                        </p>
+                      )}
                     </div>
-                  ) : null}
+                  ))}
                 </div>
+              )}
+
+              {status === "error" && (
+                <p className="mt-3 text-xs text-red-400">{message}</p>
               )}
             </div>
           </section>
