@@ -2,6 +2,7 @@
 import React, { useState, FormEvent } from "react";
 import type { NextPage } from "next";
 import type { UpgradeRecommendation } from "./api/recommendations";
+
 // ---- GA4 helper ----
 const trackEvent = (eventName: string, params?: Record<string, any>) => {
   if (typeof window === "undefined") return;
@@ -36,7 +37,7 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
     return "realtruck";
   }
 
-  // Everything else (including lifts & suspension) → Amazon for now
+  // Lifts / suspension / shocks → Amazon
   if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
     return "amazon";
   }
@@ -44,6 +45,7 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
   // Default fallback
   return "amazon";
 };
+
 const buildAffiliateUrl = (
   vendor: AffiliateVendor,
   keywords: string
@@ -84,7 +86,7 @@ const estimateValueFromPriceBand = (
 ) => {
   switch (priceBand) {
     case "budget":
-      return 150; // rough average cart
+      return 150;
     case "midrange":
       return 500;
     case "premium":
@@ -129,55 +131,24 @@ const CompatibilityPage: NextPage = () => {
       value: estimatedValue,
       currency: "USD",
     });
-    };
+  };
 
-const handleSubmit = async (e: FormEvent) => {
-  e.preventDefault();
-  setStatus("idle");
-  setMessage("");
-  setAiRecommendation(null);
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setStatus("idle");
+    setMessage("");
+    setAiRecommendation(null);
 
-  const { year, make, model, trim, upgrade, email } = form;
+    const { year, make, model, trim, upgrade, email } = form;
 
-  if (!year || !make || !model || !upgrade || !email) {
-    setStatus("error");
-    setMessage("Please fill in year, make, model, upgrade, and email.");
-    return;
-  }
-
-  // 🔹 NEW: track form_start in GA4
-  trackEvent("form_start", {
-    form_type: "compatibility",
-    upgrade_type: upgrade,
-    vehicle_year: year,
-    vehicle_make: make,
-    vehicle_model: model,
-    vehicle_trim: trim,
-  });
-
-  setIsSubmitting(true);
-
-  try {
-    // 1) Compatibility API (email + lead)
-    const compatRes = await fetch("/api/compatibility", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        year,
-        make,
-        model,
-        trim,
-        upgrade,
-        email,
-      }),
-    });
-
-    if (!compatRes.ok) {
-      throw new Error("Compatibility request failed");
+    if (!year || !make || !model || !upgrade || !email) {
+      setStatus("error");
+      setMessage("Please fill in year, make, model, upgrade, and email.");
+      return;
     }
 
-    // Track generate_lead in GA4
-    trackEvent("generate_lead", {
+    // Track form_start in GA4
+    trackEvent("form_start", {
       form_type: "compatibility",
       upgrade_type: upgrade,
       vehicle_year: year,
@@ -186,15 +157,11 @@ const handleSubmit = async (e: FormEvent) => {
       vehicle_trim: trim,
     });
 
-    setStatus("success");
-    setMessage(
-      "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
-    );
+    setIsSubmitting(true);
 
-    // 2) AI recommendations (non-blocking)
-    setAiLoading(true);
     try {
-      const aiRes = await fetch("/api/recommendations", {
+      // 1) Compatibility API (email + lead)
+      const compatRes = await fetch("/api/compatibility", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -202,62 +169,108 @@ const handleSubmit = async (e: FormEvent) => {
           make,
           model,
           trim,
-          upgradeType: upgrade,
-          drivingStyle: form.drivingStyle,
-          budgetLevel: form.budgetLevel,
-          priorities: form.priorities,
+          upgrade,
           email,
         }),
       });
 
-      if (aiRes.ok) {
-        const data = (await aiRes.json()) as {
-          ok: boolean;
-          recommendation?: UpgradeRecommendation;
-        };
+      if (!compatRes.ok) {
+        throw new Error("Compatibility request failed");
+      }
 
-        if (data.ok && data.recommendation) {
-          setAiRecommendation(data.recommendation);
+      // Track generate_lead in GA4
+      trackEvent("generate_lead", {
+        form_type: "compatibility",
+        upgrade_type: upgrade,
+        vehicle_year: year,
+        vehicle_make: make,
+        vehicle_model: model,
+        vehicle_trim: trim,
+      });
+
+      setStatus("success");
+      setMessage(
+        "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
+      );
+
+      // 2) AI recommendations (non-blocking)
+      setAiLoading(true);
+      try {
+        const aiRes = await fetch("/api/recommendations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year,
+            make,
+            model,
+            trim,
+            upgradeType: upgrade,
+            drivingStyle: form.drivingStyle,
+            budgetLevel: form.budgetLevel,
+            priorities: form.priorities,
+            email,
+          }),
+        });
+
+        if (aiRes.ok) {
+          const data = (await aiRes.json()) as {
+            ok: boolean;
+            recommendation?: UpgradeRecommendation;
+          };
+
+          if (data.ok && data.recommendation) {
+            setAiRecommendation(data.recommendation);
+          } else {
+            console.warn(
+              "[compatibility] AI response did not include recommendation"
+            );
+          }
         } else {
           console.warn(
-            "[compatibility] AI response did not include recommendation"
+            "[compatibility] AI request failed with status",
+            aiRes.status
           );
         }
-      } else {
-        console.warn(
-          "[compatibility] AI request failed with status",
-          aiRes.status
+      } catch (err) {
+        console.error(
+          "[compatibility] Error calling AI recommendation API:",
+          err
         );
+      } finally {
+        setAiLoading(false);
       }
+
+      // Reset key fields (but keep prefs)
+      setForm((prev) => ({
+        ...prev,
+        year: "",
+        make: "",
+        model: "",
+        trim: "",
+        upgrade: "",
+        email: "",
+      }));
     } catch (err) {
-      console.error(
-        "[compatibility] Error calling AI recommendation API:",
-        err
+      console.error("[compatibility] Error submitting form:", err);
+      setStatus("error");
+      setMessage(
+        "Something went wrong submitting your request. Please try again in a moment."
       );
     } finally {
-      setAiLoading(false);
+      setIsSubmitting(false);
     }
+  };
 
-    // Reset key fields (but keep prefs)
-    setForm((prev) => ({
-      ...prev,
-      year: "",
-      make: "",
-      model: "",
-      trim: "",
-      upgrade: "",
-      email: "",
-    }));
-  } catch (err) {
-    console.error("[compatibility] Error submitting form:", err);
-    setStatus("error");
-    setMessage(
-      "Something went wrong submitting your request. Please try again in a moment."
-    );
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  // Derived values for affiliate CTA
+  const ideaTypeForAffiliate =
+    form.upgrade || aiRecommendation?.overview || "recommended upgrade";
+  const affiliateVendor = chooseVendor(ideaTypeForAffiliate);
+  const affiliatePriceBand =
+    ((aiRecommendation as any)?.priceBand as
+      | "budget"
+      | "midrange"
+      | "premium") || "midrange";
+  const affiliateUrl = buildAffiliateUrl(affiliateVendor, ideaTypeForAffiliate);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -277,197 +290,10 @@ const handleSubmit = async (e: FormEvent) => {
         </header>
 
         <div className="grid gap-8 lg:grid-cols-[3fr,2fr] items-start">
-          {/* FORM */}
+          {/* FORM SECTION */}
           <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6">
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="year"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Year*
-                  </label>
-                  <input
-                    id="year"
-                    name="year"
-                    type="text"
-                    value={form.year}
-                    onChange={handleChange}
-                    placeholder="e.g. 2019"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="make"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Make*
-                  </label>
-                  <input
-                    id="make"
-                    name="make"
-                    type="text"
-                    value={form.make}
-                    onChange={handleChange}
-                    placeholder="e.g. Toyota"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="model"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Model*
-                  </label>
-                  <input
-                    id="model"
-                    name="model"
-                    type="text"
-                    value={form.model}
-                    onChange={handleChange}
-                    placeholder="e.g. Tacoma"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="trim"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Trim (optional)
-                  </label>
-                  <input
-                    id="trim"
-                    name="trim"
-                    type="text"
-                    value={form.trim}
-                    onChange={handleChange}
-                    placeholder="e.g. TRD Off-Road"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="upgrade"
-                  className="block text-xs font-medium text-slate-300 mb-1"
-                >
-                  What upgrade are you considering?*
-                </label>
-                <input
-                  id="upgrade"
-                  name="upgrade"
-                  type="text"
-                  value={form.upgrade}
-                  onChange={handleChange}
-                  placeholder='e.g. 2" lift and 285/70R17 all-terrain tires'
-                  className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label
-                    htmlFor="drivingStyle"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Driving style (optional)
-                  </label>
-                  <input
-                    id="drivingStyle"
-                    name="drivingStyle"
-                    type="text"
-                    value={form.drivingStyle}
-                    onChange={handleChange}
-                    placeholder="e.g. daily, light off-road"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="budgetLevel"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Budget level (optional)
-                  </label>
-                  <input
-                    id="budgetLevel"
-                    name="budgetLevel"
-                    type="text"
-                    value={form.budgetLevel}
-                    onChange={handleChange}
-                    placeholder="e.g. budget, midrange, premium"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="priorities"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
-                    Top priority (optional)
-                  </label>
-                  <input
-                    id="priorities"
-                    name="priorities"
-                    type="text"
-                    value={form.priorities}
-                    onChange={handleChange}
-                    placeholder="e.g. comfort, towing, mpg"
-                    className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-xs font-medium text-slate-300 mb-1"
-                >
-                  Email to send your breakdown to*
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  placeholder="you@example.com"
-                  className="w-full rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full inline-flex items-center justify-center rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isSubmitting
-                  ? "Submitting your details..."
-                  : "Run compatibility check"}
-              </button>
-
-              {status === "success" && (
-                <p className="text-xs text-emerald-400">{message}</p>
-              )}
-              {status === "error" && (
-                <p className="text-xs text-red-400">{message}</p>
-              )}
-
-              <p className="text-[11px] text-slate-500">
-                We&apos;ll never sell your data. Your email is only used for
-                sending this upgrade breakdown and optional follow-ups.
-              </p>
-            </form>
+            {/* form omitted for brevity – keep exactly what you already have here */}
+            {/* ... */}
           </section>
 
           {/* AI RECOMMENDATION */}
@@ -496,179 +322,10 @@ const handleSubmit = async (e: FormEvent) => {
                 </p>
               )}
 
-            {!aiLoading && aiRecommendation && (
-  <div className="space-y-4">
-    <div>
-      <p className="text-xs font-semibold text-slate-300 mb-1">
-        Overview
-      </p>
-      <p className="text-xs text-slate-300">
-        {aiRecommendation.overview}
-      </p>
-    </div>
-
-    <div className="grid grid-cols-3 gap-3 text-[11px]">
-      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-        <p className="text-slate-400 mb-0.5">Fitment</p>
-        <p className="text-slate-50 font-semibold">
-          {aiRecommendation.fitmentConfidence}/100
-        </p>
-      </div>
-      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-        <p className="text-slate-400 mb-0.5">Value</p>
-        <p className="text-slate-50 font-semibold">
-          {aiRecommendation.valueScore}/100
-        </p>
-      </div>
-      <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
-        <p className="text-slate-400 mb-0.5">Performance</p>
-        <p className="text-slate-50 font-semibold">
-          {aiRecommendation.performanceImpact}/100
-        </p>
-      </div>
-    </div>
-
-    <div>
-      <p className="text-xs font-semibold text-slate-300 mb-1">
-        Risk &amp; decision
-      </p>
-      <p className="text-[11px] text-slate-400 mb-1">
-        Risk level:{" "}
-        <span className="font-semibold text-slate-100">
-          {aiRecommendation.riskLevel}
-        </span>
-      </p>
-      <p className="text-[11px] text-slate-300">
-        {aiRecommendation.decisionSummary}
-      </p>
-    </div>
-
-    {/* Affiliate CTA */}
-    <div className="pt-3 border-t border-slate-800">
-      {(() => {
-        // Use the user’s requested upgrade text as the keyword
-        const ideaType =
-          form.upgrade || aiRecommendation.overview || "recommended upgrade";
-
-        // Choose vendor based on the idea text
-        const vendor = chooseVendor(ideaType);
-
-        // Price band from AI if available; otherwise midrange
-        const priceBand =
-          ((aiRecommendation as any).priceBand as
-            | "budget"
-            | "midrange"
-            | "premium") || "midrange";
-
-        // Build redirect URL to /api/out
-        const affiliateUrl = buildAffiliateUrl(vendor, ideaType);
-
-        return (
-          <button
-            type="button"
-            onClick={() => {
-              handleAffiliateClick(ideaType, vendor, priceBand);
-              // After tracking, send user to the affiliate redirect
-              window.location.href = affiliateUrl;
-            }}
-            className="w-full rounded-lg bg-cyan-500 text-slate-950 text-xs font-semibold py-2 mt-1 hover:bg-cyan-400 transition"
-          >
-            View this upgrade on{" "}
-            {vendor === "tirerack" ? "Tire Rack" : "Amazon"}
-          </button>
-        );
-      })()}
-    </div>
-  </div>
-)}
-
-                  {aiRecommendation.potentialIssues?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Potential issues
-                      </p>
-                      <ul className="text-[11px] text-slate-400 list-disc list-inside space-y-1">
-                        {aiRecommendation.potentialIssues.map((issue, idx) => (
-                          <li key={idx}>{issue}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {aiRecommendation.recommendedUpgradeIdeas?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Suggested upgrade direction
-                      </p>
-                      {aiRecommendation.recommendedUpgradeIdeas.map(
-                        (idea, idx) => (
-                          <div
-                            key={idx}
-                            className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 mb-2"
-                          >
-                            <p className="text-xs font-semibold text-slate-100">
-                              {idea.name}
-                            </p>
-                            <p className="text-[11px] text-slate-400 mb-1">
-                              {idea.summary}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              Price band:{" "}
-                              <span className="text-slate-200">
-                                {idea.priceBand}
-                              </span>
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              Example approach:{" "}
-                              <span className="text-slate-200">
-                                {idea.examplePartHint}
-                              </span>
-                            </p>
-
-                            {/* Monetized CTA via affiliate router */}
-                            {(() => {
-                              const vendor = chooseVendor(idea.type || "");
-                              const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
-                              const href = buildAffiliateUrl(
-                                vendor,
-                                keywords || form.upgrade || "auto upgrade"
-                              );
-
-                              return (
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={() =>
-                                    handleAffiliateClick(
-                                      idea.type,
-                                      vendor,
-                                      idea.priceBand
-                                    )
-                                  }
-                                  className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                                >{vendor === "amazon" && "Shop this direction on Amazon"}
-{vendor === "tirerack" && "Shop this direction on Tire Rack"}
-{vendor === "realtruck" && "Shop this direction on RealTruck"}
-
-                                 
-                                </a>
-                              );
-                            })()}
-                          </div>
-                        )
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      In plain language
-                    </p>
-                    <p className="text-xs text-slate-300">
-                      {aiRecommendation.shortExplanation}
-                    </p>
-                  </div>
+              {!aiLoading && aiRecommendation && (
+                <div className="space-y-4">
+                  {/* overview, scores, risk, CTAs, etc. */}
+                  {/* make sure every <div> has a matching </div> here */}
                 </div>
               )}
             </div>
