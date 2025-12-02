@@ -1,9 +1,29 @@
 // src/pages/api/bestupgrades.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import type {
-  BestUpgradeCategory,
-  BestUpgradeIdea,
-} from "../../pages/best-upgrades"; // if this import path complains, you can remove it and re-declare the types.
+/*
+If the external types are not exported from ../../pages/best-upgrades,
+re-declare the minimal types locally to avoid the import error.
+*/
+export type BestUpgradeIdea = {
+  name: string;
+  type: string;
+  summary: string;
+  priceBand: "budget" | "midrange" | "premium";
+  examplePartHint: string;
+  bestFor: string;
+  potentialIssues: string[];
+};
+
+export type BestUpgradeCategory = {
+  id: string;
+  label: string;
+  priorityRank: number;
+  rationale: string;
+  recommendedBudgetBand: "budget" | "midrange" | "premium";
+  riskLevel: "low" | "medium" | "high";
+  ideas: BestUpgradeIdea[];
+  overallNote: string;
+};
 
 // If the import above causes trouble, comment it out and uncomment the type definitions below:
 /*
