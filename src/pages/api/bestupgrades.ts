@@ -35,14 +35,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
-  // Allow both GET and POST to avoid 405 issues
-  if (req.method !== "POST" && req.method !== "GET") {
-    res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
+  // 👇 IMPORTANT: NO 405 / METHOD CHECK AT ALL
+  // We just accept whatever method hits this route and
+  // pull data from body (POST) or query (GET).
 
-  // Support both body (POST) and query (GET)
-  const source: any = req.method === "POST" ? req.body : req.query;
+  const source: any = req.body && Object.keys(req.body).length ? req.body : req.query;
 
   const {
     year,
