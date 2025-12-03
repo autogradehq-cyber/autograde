@@ -1,4 +1,4 @@
-// src/pages/best-upgrades/[year]/[make]/[model].tsx
+// src/pages/best-upgrades/[year]/[make]/[model]/index.tsx
 import React from "react";
 import type { NextPage, GetServerSideProps } from "next";
 import Head from "next/head";
@@ -15,7 +15,7 @@ const trackEvent = (eventName: string, params?: Record<string, any>) => {
   });
 };
 
-// ---- Affiliate helpers (same logic as compatibility/best-upgrades) ----
+// ---- Affiliate helpers ----
 type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
 const chooseVendor = (ideaType: string): AffiliateVendor => {
@@ -50,45 +50,21 @@ const buildAffiliateUrl = (
   return `/api/out?${params.toString()}`;
 };
 
-const estimateValueFromPriceBand = (
-  priceBand: "budget" | "midrange" | "premium" | string
-) => {
+const estimateValueFromPriceBand = (priceBand: string | undefined) => {
   const band = (priceBand || "").toLowerCase();
   if (band.includes("budget")) return 150;
   if (band.includes("premium")) return 1200;
   return 500;
 };
 
-// ---- Types for the best-upgrades API response (loose on purpose) ----
-type UpgradeIdea = {
-  name?: string;
-  summary?: string;
-  priceBand?: "budget" | "midrange" | "premium" | string;
-  examplePartHint?: string;
-  type?: string;
-};
-
-type UpgradeCategory = {
-  id?: string;
-  priorityRank?: number;
-  title?: string;
-  description?: string;
-  budgetBand?: string;
-  riskLevel?: string;
-  upgrades?: UpgradeIdea[];
-};
-
-type BestUpgradesData = {
-  ok: boolean;
-  vehicleSummary?: string;
-  categories?: UpgradeCategory[];
-};
+// ---- VERY FLEXIBLE TYPES (to match whatever /api/bestupgrades returns) ----
+type AnyRecord = Record<string, any>;
 
 type PageProps = {
   year: string;
   make: string;
   model: string;
-  initialData: BestUpgradesData | null;
+  initialData: AnyRecord | null;
 };
 
 const BestUpgradesVehiclePage: NextPage<PageProps> = ({
@@ -98,17 +74,27 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
   initialData,
 }) => {
   const vehicleLabel = `${year} ${make} ${model}`.trim();
-  const data = initialData;
+  const data = initialData || {};
+
+  const categories: AnyRecord[] = Array.isArray(data.categories)
+    ? data.categories
+    : [];
+
+  const vehicleSummary: string =
+    data.vehicleSummary ||
+    data.summary ||
+    data.metaSummary ||
+    "";
 
   const handleAffiliateClick = (
-    idea: UpgradeIdea,
+    idea: AnyRecord,
     vendor: AffiliateVendor,
     priceBand: string
   ) => {
     const estimatedValue = estimateValueFromPriceBand(priceBand);
 
     trackEvent("affiliate_click", {
-      upgrade_type: idea.type || idea.name || "",
+      upgrade_type: idea.type || idea.name || idea.label || "",
       vehicle_year: year,
       vehicle_make: make,
       vehicle_model: model,
@@ -123,8 +109,17 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
 
   const title = `Best upgrades for ${vehicleLabel} | AutoGrade`;
   const metaDescription =
-    data?.vehicleSummary ||
+    vehicleSummary ||
     `See the highest-impact upgrades for your ${vehicleLabel} before you spend the money. Tires, suspension, accessories, and more — with fitment notes and tradeoffs.`;
+
+  // Sort categories by any of the common priority fields
+  const sortedCategories = [...categories].sort((a, b) => {
+    const pa =
+      a.priorityRank ?? a.priority ?? a.order ?? a.rank ?? Number.MAX_SAFE_INTEGER;
+    const pb =
+      b.priorityRank ?? b.priority ?? b.order ?? b.rank ?? Number.MAX_SAFE_INTEGER;
+    return pa - pb;
+  });
 
   return (
     <>
@@ -156,7 +151,20 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
             </p>
           </header>
 
-          {!data || !data.ok || !data.categories?.length ? (
+          {/* VEHICLE SUMMARY, IF AVAILABLE */}
+          {vehicleSummary && (
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6 mb-6">
+              <h2 className="text-sm sm:text-base font-semibold text-slate-50 mb-2">
+                How this {vehicleLabel} usually behaves stock
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300">
+                {vehicleSummary}
+              </p>
+            </section>
+          )}
+
+          {/* NO DATA → FALLBACK MESSAGE */}
+          {!sortedCategories.length && (
             <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
               <h2 className="text-sm sm:text-base font-semibold text-slate-50 mb-2">
                 We couldn&apos;t generate a full upgrade plan yet.
@@ -172,160 +180,217 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
                 Open interactive Best Upgrades tool
               </a>
             </section>
-          ) : (
+          )}
+
+          {/* CATEGORY SECTIONS */}
+          {sortedCategories.length > 0 && (
             <section className="space-y-6">
-              {/* Optional one-paragraph vehicle summary at top */}
-              {data.vehicleSummary && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6 mb-2">
-                  <h2 className="text-sm sm:text-base font-semibold text-slate-50 mb-2">
-                    How this {vehicleLabel} usually behaves stock
-                  </h2>
-                  <p className="text-xs sm:text-sm text-slate-300">
-                    {data.vehicleSummary}
-                  </p>
-                </div>
-              )}
+              {sortedCategories.map((cat, idx) => {
+                const priorityLabel =
+                  cat.priorityRank ??
+                  cat.priority ??
+                  cat.order ??
+                  cat.rank ??
+                  idx + 1;
 
-              {/* CATEGORY SECTIONS (magazine style + interactive cards) */}
-              {data.categories!
-                .slice()
-                .sort(
-                  (a, b) =>
-                    (a.priorityRank ?? 999) - (b.priorityRank ?? 999)
-                )
-                .map((cat, idx) => {
-                  const priorityLabel = cat.priorityRank ?? idx + 1;
-                  const budgetBand = cat.budgetBand || "mixed budget";
-                  const riskLabel = (cat.riskLevel || "medium").toLowerCase();
+                const catTitle: string =
+                  cat.title ||
+                  cat.label ||
+                  cat.name ||
+                  "High-impact upgrade category";
 
-                  const riskColor =
-                    riskLabel === "low"
-                      ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/40"
-                      : riskLabel === "high"
-                      ? "bg-red-500/10 text-red-300 border border-red-500/40"
-                      : "bg-amber-500/10 text-amber-300 border border-amber-500/40";
+                const catDescription: string =
+                  cat.description ||
+                  cat.summary ||
+                  cat.details ||
+                  cat.reason ||
+                  "";
 
-                  return (
-                    <article
-                      key={cat.id || idx}
-                      className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-                        <div>
-                          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-                            Priority {priorityLabel}
-                          </p>
-                          <h2 className="text-sm sm:text-base font-semibold text-slate-50">
-                            {cat.title || "High-impact upgrade category"}
-                          </h2>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <span className="inline-flex items-center rounded-full bg-slate-950/70 border border-slate-700 px-3 py-1 text-[10px] font-semibold text-slate-300">
-                            Budget focus: {budgetBand}
-                          </span>
-                          <span
-                            className={
-                              "inline-flex items-center rounded-full px-3 py-1 text-[10px] font-semibold " +
-                              riskColor
-                            }
-                          >
-                            Typical risk: {riskLabel}
-                          </span>
-                        </div>
-                      </div>
+                const budgetBand: string =
+                  cat.budgetBand ||
+                  cat.budget ||
+                  cat.priceBand ||
+                  "mixed budget";
 
-                      {cat.description && (
-                        <p className="text-xs sm:text-sm text-slate-300 mb-4">
-                          {cat.description}
+                const riskLabelRaw: string =
+                  cat.riskLevel || cat.risk || "medium";
+                const riskLabel = riskLabelRaw.toLowerCase();
+
+                const riskColor =
+                  riskLabel === "low"
+                    ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/40"
+                    : riskLabel === "high"
+                    ? "bg-red-500/10 text-red-300 border border-red-500/40"
+                    : "bg-amber-500/10 text-amber-300 border border-amber-500/40";
+
+                const upgrades: AnyRecord[] = Array.isArray(cat.upgrades)
+                  ? cat.upgrades
+                  : Array.isArray(cat.items)
+                  ? cat.items
+                  : Array.isArray(cat.ideas)
+                  ? cat.ideas
+                  : [];
+
+                return (
+                  <article
+                    key={cat.id || `${idx}-${catTitle}`}
+                    className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                      <div>
+                        <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                          Priority {priorityLabel}
                         </p>
-                      )}
+                        <h2 className="text-sm sm:text-base font-semibold text-slate-50">
+                          {catTitle}
+                        </h2>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center rounded-full bg-slate-950/70 border border-slate-700 px-3 py-1 text-[10px] font-semibold text-slate-300">
+                          Budget focus: {budgetBand}
+                        </span>
+                        <span
+                          className={
+                            "inline-flex items-center rounded-full px-3 py-1 text-[10px] font-semibold " +
+                            riskColor
+                          }
+                        >
+                          Typical risk: {riskLabel}
+                        </span>
+                      </div>
+                    </div>
 
-                      {/* Upgrade ideas inside this category */}
-                      {cat.upgrades && cat.upgrades.length > 0 && (
-                        <div className="space-y-3">
-                          {cat.upgrades.map((idea, ideaIdx) => {
-                            const vendor = chooseVendor(idea.type || idea.name || cat.title || "");
-                            const priceBand = idea.priceBand || cat.budgetBand || "midrange";
-                            const keywords = `${year} ${make} ${model} ${idea.type || ""} ${idea.name || ""}`.trim();
-                            const href = buildAffiliateUrl(
-                              vendor,
-                              keywords || `${year} ${make} ${model} upgrade`
-                            );
+                    {catDescription && (
+                      <p className="text-xs sm:text-sm text-slate-300 mb-4">
+                        {catDescription}
+                      </p>
+                    )}
 
-                            return (
-                              <div
-                                key={ideaIdx}
-                                className="rounded-lg bg-slate-950/70 border border-slate-800 p-3 sm:p-4"
-                              >
-                                <h3 className="text-xs sm:text-sm font-semibold text-slate-50 mb-1">
-                                  {idea.name || "Recommended upgrade idea"}
-                                </h3>
-                                {idea.summary && (
-                                  <p className="text-[11px] sm:text-xs text-slate-300 mb-1.5">
-                                    {idea.summary}
-                                  </p>
+                    {/* UPGRADE IDEAS INSIDE THIS CATEGORY */}
+                    {upgrades.length > 0 ? (
+                      <div className="space-y-3">
+                        {upgrades.map((idea, ideaIdx) => {
+                          const ideaName: string =
+                            idea.name ||
+                            idea.title ||
+                            idea.label ||
+                            "Recommended upgrade idea";
+
+                          const ideaSummary: string =
+                            idea.summary ||
+                            idea.description ||
+                            idea.details ||
+                            "";
+
+                          const ideaPriceBand: string =
+                            idea.priceBand ||
+                            idea.budgetBand ||
+                            cat.budgetBand ||
+                            cat.budget ||
+                            "midrange";
+
+                          const exampleHint: string =
+                            idea.examplePartHint ||
+                            idea.example ||
+                            idea.hint ||
+                            "";
+
+                          const ideaType: string =
+                            idea.type || idea.category || cat.type || catTitle;
+
+                          const vendor: AffiliateVendor =
+                            chooseVendor(ideaType);
+
+                          const keywords = `${year} ${make} ${model} ${
+                            ideaType || ""
+                          } ${ideaName}`.trim();
+
+                          const href = buildAffiliateUrl(
+                            vendor,
+                            keywords ||
+                              `${year} ${make} ${model} upgrade idea`
+                          );
+
+                          return (
+                            <div
+                              key={ideaIdx}
+                              className="rounded-lg bg-slate-950/70 border border-slate-800 p-3 sm:p-4"
+                            >
+                              <h3 className="text-xs sm:text-sm font-semibold text-slate-50 mb-1">
+                                {ideaName}
+                              </h3>
+                              {ideaSummary && (
+                                <p className="text-[11px] sm:text-xs text-slate-300 mb-1.5">
+                                  {ideaSummary}
+                                </p>
+                              )}
+
+                              <div className="flex flex-wrap gap-3 text-[11px] text-slate-400 mb-2">
+                                {ideaPriceBand && (
+                                  <span>
+                                    Price band:{" "}
+                                    <span className="text-slate-200">
+                                      {ideaPriceBand}
+                                    </span>
+                                  </span>
                                 )}
-
-                                <div className="flex flex-wrap gap-3 text-[11px] text-slate-400 mb-2">
-                                  {priceBand && (
-                                    <span>
-                                      Price band:{" "}
-                                      <span className="text-slate-200">
-                                        {priceBand}
-                                      </span>
+                                {exampleHint && (
+                                  <span>
+                                    Example approach:{" "}
+                                    <span className="text-slate-200">
+                                      {exampleHint}
                                     </span>
-                                  )}
-                                  {idea.examplePartHint && (
-                                    <span>
-                                      Example approach:{" "}
-                                      <span className="text-slate-200">
-                                        {idea.examplePartHint}
-                                      </span>
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex flex-wrap gap-2">
-                                  <a
-                                    href={href}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={() =>
-                                      handleAffiliateClick(
-                                        idea,
-                                        vendor,
-                                        priceBand
-                                      )
-                                    }
-                                    className="inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                                  >
-                                    {vendor === "amazon" &&
-                                      "Shop this idea on Amazon"}
-                                    {vendor === "tirerack" &&
-                                      "Shop this idea on Tire Rack"}
-                                    {vendor === "realtruck" &&
-                                      "Shop this idea on RealTruck"}
-                                  </a>
-
-                                  <a
-                                    href="/fitment"
-                                    className="inline-flex items-center rounded-md border border-slate-600 px-3 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800/60 transition-colors"
-                                  >
-                                    Run fitment sanity check
-                                  </a>
-                                </div>
+                                  </span>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
+
+                              <div className="flex flex-wrap gap-2">
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() =>
+                                    handleAffiliateClick(
+                                      idea,
+                                      vendor,
+                                      ideaPriceBand
+                                    )
+                                  }
+                                  className="inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                                >
+                                  {vendor === "amazon" &&
+                                    "Shop this idea on Amazon"}
+                                  {vendor === "tirerack" &&
+                                    "Shop this idea on Tire Rack"}
+                                  {vendor === "realtruck" &&
+                                    "Shop this idea on RealTruck"}
+                                </a>
+
+                                <a
+                                  href="/fitment"
+                                  className="inline-flex items-center rounded-md border border-slate-600 px-3 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800/60 transition-colors"
+                                >
+                                  Run fitment sanity check
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">
+                        We&apos;re still tuning upgrade suggestions for this
+                        category. Use the interactive tool to generate a more
+                        detailed plan for your exact setup.
+                      </p>
+                    )}
+                  </article>
+                );
+              })}
             </section>
           )}
 
-          {/* Small footer call-to-action to use the interactive tool */}
+          {/* FOOTER CTA */}
           <section className="mt-10 border-t border-slate-800 pt-6">
             <h2 className="text-xs sm:text-sm font-semibold text-slate-200 mb-1">
               Want to tweak the plan?
@@ -365,7 +430,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (
   const protocol = host.startsWith("localhost") ? "http" : "https";
   const url = `${protocol}://${host}/api/bestupgrades`;
 
-  let initialData: BestUpgradesData | null = null;
+  let initialData: AnyRecord | null = null;
 
   try {
     const res = await fetch(url, {
@@ -375,12 +440,12 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (
         year,
         make,
         model,
-        // You can add more knobs later (driving style, budget, etc.)
+        // knobs like drivingStyle/budgetLevel/priorities can be added later
       }),
     });
 
     if (res.ok) {
-      initialData = (await res.json()) as BestUpgradesData;
+      initialData = (await res.json()) as AnyRecord;
     } else {
       console.error(
         "[best-upgrades vehicle] API returned status",
