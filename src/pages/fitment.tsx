@@ -399,15 +399,16 @@ const FitmentPage: NextPage = () => {
                           Approximate speedometer error matches the diameter
                           change percentage. Larger tires make the speedometer
                           read slower than actual.
-                        </p>
-                      )}
-                      {result.widthChangeIn !== null && (
-                        <p>
-                          Width change vs. stock:{" "}
-                          <span className="text-slate-100">
-                            {result.widthChangeIn > 0 ? "+" : ""}
-                            {result.widthChangeIn.toFixed(2)}"
-                          </span>
+                        {result.widthChangeIn != null && (
+  <p className="text-[11px] text-slate-300">
+    Width change vs. stock:{" "}
+    <span className="text-slate-100">
+      {result.widthChangeIn > 0 ? "+" : ""}
+      {result.widthChangeIn.toFixed(2)}"
+    </span>
+  </p>
+)}
+
                         </p>
                       )}
                     </div>
