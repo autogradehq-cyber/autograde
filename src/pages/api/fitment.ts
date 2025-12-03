@@ -42,10 +42,11 @@ export default function handler(
         aspectRatio: NaN,
         wheelDiameterIn: NaN,
       },
+      newDiameterIn: NaN,
       rubRisk: "high",
       summary: "",
       detailedNotes: [],
-    });
+    } as FitmentResult);
   }
 
   const result = evaluateFitment(input);
