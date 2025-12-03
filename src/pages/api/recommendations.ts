@@ -2,54 +2,42 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 
-let openai: OpenAI | null = null;
-
-const apiKey = process.env.OPENAI_API_KEY;
-const projectId = process.env.OPENAI_PROJECT_ID;
-
-// Debug what the server actually sees on startup
-console.log("[/api/recommendations] env debug:", {
-  hasKey: !!apiKey,
-  keyPrefix: apiKey?.slice(0, 12),
-  hasProject: !!projectId,
-  projectId,
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-if (apiKey && projectId) {
-  openai = new OpenAI({
-    apiKey,
-    project: projectId,
-  });
-}
+// Keep this in sync with the frontend usage in compatibility.tsx
+export type UpgradeIdea = {
+  name: string;
+  type: string; // e.g. "all-terrain tires", "leveling kit", "tonneau cover"
+  summary: string;
+  priceBand: "budget" | "midrange" | "premium";
+  examplePartHint: string; // human-readable hint, not a SKU
+};
 
-// Shape of the recommendation we’ll return to the frontend
 export type UpgradeRecommendation = {
   overview: string;
   fitmentConfidence: number; // 0–100
   valueScore: number; // 0–100
   performanceImpact: number; // 0–100
   riskLevel: "low" | "medium" | "high";
-  buyRecommendation: "buy_now" | "consider_alternatives" | "avoid";
-  keyBenefits: string[];
+  priceBand: "budget" | "midrange" | "premium";
   potentialIssues: string[];
-  recommendedUpgradeIdeas: {
-    name: string;
-    type: string;
-    summary: string;
-    priceBand: "budget" | "midrange" | "premium";
-    examplePartHint: string;
-  }[];
+  recommendedUpgradeIdeas: UpgradeIdea[];
   shortExplanation: string;
+  decisionSummary: string;
 };
 
-type ErrorResponse = { ok: false; error: string };
-type SuccessResponse = { ok: true; recommendation: UpgradeRecommendation };
+type ApiResponse =
+  | { ok: true; recommendation: UpgradeRecommendation }
+  | { ok: false; error: string };
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<SuccessResponse | ErrorResponse>
+  res: NextApiResponse<ApiResponse>
 ) {
   if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
@@ -62,135 +50,182 @@ export default async function handler(
     drivingStyle,
     budgetLevel,
     priorities,
-    email, // not yet used but kept for future personalization / follow-ups
+    email,
   } = req.body || {};
 
   if (!year || !make || !model || !upgradeType) {
     return res.status(400).json({
       ok: false,
-      error:
-        "Missing required fields: year, make, model, and upgradeType are required.",
+      error: "Missing required fields: year, make, model, upgradeType",
     });
-  }
-
-  // If we couldn't construct the client, fall back to mock data so the UI still works
-  if (!openai) {
-    console.warn(
-      "[/api/recommendations] Missing OpenAI client (key or projectId). Returning mock data."
-    );
-
-    const mock: UpgradeRecommendation = {
-      overview:
-        "For this vehicle and upgrade type, a mild, well-reviewed setup is usually the sweet spot — good gains without major compromises.",
-      fitmentConfidence: 88,
-      valueScore: 82,
-      performanceImpact: 75,
-      riskLevel: "low",
-      buyRecommendation: "consider_alternatives",
-      keyBenefits: [
-        "Noticeable improvement without dramatically changing daily drivability",
-        "Common, proven configurations with lots of community feedback",
-      ],
-      potentialIssues: [
-        "Cheap, no-name parts can introduce noise and reliability issues",
-        "Aggressive options may require trimming or additional supporting mods",
-      ],
-      recommendedUpgradeIdeas: [
-        {
-          name: "Balanced, daily-driver friendly setup",
-          type: upgradeType || "suspension",
-          summary:
-            "Focus on a combination that keeps the vehicle comfortable but sharper and more capable than stock.",
-          priceBand: "midrange",
-          examplePartHint:
-            "Think reputable brands with many fitment confirmations for this platform.",
-        },
-      ],
-      shortExplanation:
-        "Overall, this upgrade can be worth it if you avoid cheap parts and stick to proven, platform-specific options.",
-    };
-
-    return res.status(200).json({ ok: true, recommendation: mock });
   }
 
   try {
-    const prompt = `
-You are AutoGrade, an AI engine that evaluates automotive upgrades.
+    const vehicleString = `${year} ${make} ${model}${
+      trim ? " " + trim : ""
+    }`.trim();
 
-Given:
-- Vehicle: ${year} ${make} ${model} ${trim || ""}
-- Upgrade type: ${upgradeType}
-- Driving style: ${drivingStyle || "not specified"}
-- Budget level: ${budgetLevel || "not specified"}
-- Owner priorities: ${priorities || "not specified"}
+    const userBudget =
+      typeof budgetLevel === "string" && budgetLevel.length
+        ? budgetLevel.toLowerCase()
+        : "midrange";
 
-Return a STRICT JSON object (no extra text, no markdown) with this exact shape:
+    const defaultPriceBand: "budget" | "midrange" | "premium" =
+      userBudget.includes("budget")
+        ? "budget"
+        : userBudget.includes("premium")
+        ? "premium"
+        : "midrange";
 
-{
-  "overview": string,
-  "fitmentConfidence": number,
-  "valueScore": number,
-  "performanceImpact": number,
-  "riskLevel": "low" | "medium" | "high",
-  "buyRecommendation": "buy_now" | "consider_alternatives" | "avoid",
-  "keyBenefits": string[],
-  "potentialIssues": string[],
-  "recommendedUpgradeIdeas": [
-    {
-      "name": string,
-      "type": string,
-      "summary": string,
-      "priceBand": "budget" | "midrange" | "premium",
-      "examplePartHint": string
-    }
-  ],
-  "shortExplanation": string
-}
-
-Guidelines:
-- Be realistic and conservative about fitment and risk.
-- Consider rubbing, supporting mods, warranty risk, and daily drivability.
-- Never mention affiliate links, stores, or brands; keep recommendations generic and principle-driven.
-- Tailor the advice to this specific vehicle + upgrade type.
-- Use "budget" only for entry-level options, "premium" for high-end builds, and "midrange" for most daily-driver setups.
-`;
-
-    const response = await openai.responses.create({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      input: prompt,
-      // easy tuning knobs if we want to adjust behavior later
-      max_output_tokens: 800,
-      temperature: 0.3,
+      temperature: 0.4,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are AutoGrade, an automotive upgrade advisor.",
+            "Your job: help users avoid bad fitment and choose upgrades that make sense for daily life.",
+            "You MUST respond with a single JSON object that matches the UpgradeRecommendation type.",
+            "Do NOT invent specific brand names unless they are well-known and widely available.",
+            "Never claim 100% guaranteed fitment; use confident but honest language instead.",
+            "Assume current knowledge only up to your training cutoff; do not pretend to have live inventory data.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: [
+            `Vehicle: ${vehicleString}`,
+            `Upgrade user is considering: ${upgradeType}`,
+            drivingStyle ? `Driving style: ${drivingStyle}` : "",
+            budgetLevel ? `Budget level: ${budgetLevel}` : "",
+            priorities ? `User priorities: ${priorities}` : "",
+            email ? `Contact email (for context only): ${email}` : "",
+            "",
+            "Return a JSON object with this exact shape:",
+            JSON.stringify(
+              {
+                overview: "One paragraph summary of whether this upgrade makes sense.",
+                fitmentConfidence: 0,
+                valueScore: 0,
+                performanceImpact: 0,
+                riskLevel: "medium",
+                priceBand: defaultPriceBand,
+                potentialIssues: [
+                  "List key risks like rubbing, gearing changes, ride harshness, safety, or towing impact.",
+                ],
+                recommendedUpgradeIdeas: [
+                  {
+                    name: "Short, descriptive upgrade name",
+                    type: "category like 'all-terrain tires' or 'tonneau cover'",
+                    summary:
+                      "Why this is a good direction for this vehicle & use case.",
+                    priceBand: defaultPriceBand,
+                    examplePartHint:
+                      "Human-readable description like '275/65R18 all-terrain tire aimed at quiet daily driving.'",
+                  },
+                ],
+                shortExplanation:
+                  "Plain-language explanation of what the user should do next in 2–3 sentences.",
+                decisionSummary:
+                  "Short summary sentence they could screenshot, like 'Safe to run 285/70R17s with minor trimming; choose an E-load AT if you tow.'",
+              },
+              null,
+              2
+            ),
+            "",
+            "Additional rules:",
+            "- fitmentConfidence, valueScore, and performanceImpact must be integers from 0 to 100.",
+            "- recommendedUpgradeIdeas should usually have 2–3 items: e.g. safe option, more aggressive option, and budget-friendly option.",
+            "- For tires or wheels, mention if they should check a fitment tool at Tire Rack or similar.",
+            "- For truck accessories (tonneau, running boards, bed covers, steps), mention that RealTruck-type retailers specialize in these.",
+            "- For everything else, default to general retailers (like Amazon) as a concept, not by name in the JSON.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ],
     });
 
-    const rawText = (response as any).output_text as string | undefined;
-
-    if (!rawText) {
-      throw new Error("No output_text returned from model");
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) {
+      throw new Error("No content returned from model");
     }
 
-    const jsonText = extractJson(rawText);
-    const parsed = JSON.parse(jsonText) as UpgradeRecommendation;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.error("[recommendations] JSON parse error:", err, raw);
+      throw new Error("Failed to parse model JSON");
+    }
 
-    return res.status(200).json({ ok: true, recommendation: parsed });
-  } catch (err: any) {
-    console.error("[/api/recommendations] Error:", err);
+    // Some models might nest under { recommendation: { ... } }
+    const rec: UpgradeRecommendation =
+      parsed.recommendation ?? parsed ?? ({} as any);
+
+    // Minimal sanity checks with fallbacks
+    const clamp = (n: any) =>
+      Math.max(0, Math.min(100, Number.isFinite(Number(n)) ? Number(n) : 50));
+
+    rec.fitmentConfidence = clamp(rec.fitmentConfidence);
+    rec.valueScore = clamp(rec.valueScore);
+    rec.performanceImpact = clamp(rec.performanceImpact);
+
+    if (!rec.riskLevel || !["low", "medium", "high"].includes(rec.riskLevel)) {
+      rec.riskLevel = "medium";
+    }
+
+    if (
+      !rec.priceBand ||
+      !["budget", "midrange", "premium"].includes(rec.priceBand)
+    ) {
+      rec.priceBand = defaultPriceBand;
+    }
+
+    if (!Array.isArray(rec.potentialIssues)) {
+      rec.potentialIssues = [];
+    }
+
+    if (!Array.isArray(rec.recommendedUpgradeIdeas)) {
+      rec.recommendedUpgradeIdeas = [];
+    } else {
+      rec.recommendedUpgradeIdeas = rec.recommendedUpgradeIdeas.map(
+        (idea: any): UpgradeIdea => ({
+          name: idea.name || "Upgrade direction",
+          type: idea.type || "upgrade",
+          summary:
+            idea.summary ||
+            "High-level upgrade direction based on your vehicle and goals.",
+          priceBand:
+            ["budget", "midrange", "premium"].includes(idea.priceBand) &&
+            idea.priceBand
+              ? idea.priceBand
+              : defaultPriceBand,
+          examplePartHint:
+            idea.examplePartHint ||
+            "Example style and size of part to consider; still verify exact fitment.",
+        })
+      );
+    }
+
+    rec.overview =
+      rec.overview ||
+      `High-level recommendation for ${vehicleString} with upgrade: ${upgradeType}.`;
+    rec.shortExplanation =
+      rec.shortExplanation ||
+      "This upgrade can work, but double-check fitment and alignment with your daily use.";
+    rec.decisionSummary =
+      rec.decisionSummary ||
+      "Good idea with some tradeoffs — review the notes and shop carefully.";
+
+    return res.status(200).json({ ok: true, recommendation: rec });
+  } catch (error: any) {
+    console.error("[recommendations] API error:", error);
     return res.status(500).json({
       ok: false,
-      error: "Failed to generate recommendation. Please try again.",
+      error: "Failed to generate recommendation. Please try again soon.",
     });
   }
-}
-
-/**
- * Some models occasionally wrap JSON in extra text.
- * This helper extracts the first {...} block so JSON.parse succeeds.
- */
-function extractJson(text: string): string {
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("Could not find JSON object in model output");
-  }
-  return text.slice(firstBrace, lastBrace + 1);
 }
