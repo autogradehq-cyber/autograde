@@ -21,8 +21,10 @@ type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 const chooseVendor = (ideaType: string): AffiliateVendor => {
   const t = (ideaType || "").toLowerCase();
 
+  // Tires / wheels -> Tire Rack
   if (t.includes("tire") || t.includes("wheel")) return "tirerack";
 
+  // Truck accessories -> RealTruck (once Sovrn is live)
   if (
     t.includes("tonneau") ||
     t.includes("bed cover") ||
@@ -33,10 +35,12 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
     return "realtruck";
   }
 
+  // Lifts/suspension -> Amazon for now
   if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
     return "amazon";
   }
 
+  // Fallback
   return "amazon";
 };
 
@@ -54,7 +58,7 @@ const estimateValueFromPriceBand = (priceBand: string | undefined) => {
   const band = (priceBand || "").toLowerCase();
   if (band.includes("budget")) return 150;
   if (band.includes("premium")) return 1200;
-  return 500;
+  return 500; // midrange default
 };
 
 // ---- VERY FLEXIBLE TYPES (to match whatever /api/bestupgrades returns) ----
@@ -65,6 +69,71 @@ type PageProps = {
   make: string;
   model: string;
   initialData: AnyRecord | null;
+};
+
+// ---- Structured data for SEO (JSON-LD) ----
+const buildStructuredData = (
+  year: string,
+  make: string,
+  model: string,
+  data: AnyRecord | null
+) => {
+  const vehicleName = `${year} ${make} ${model}`.trim();
+  const categories: AnyRecord[] = Array.isArray(data?.categories)
+    ? data!.categories
+    : [];
+
+  const items: AnyRecord[] = [];
+
+  categories.forEach((cat) => {
+    const upgrades: AnyRecord[] = Array.isArray(cat.upgrades)
+      ? cat.upgrades
+      : Array.isArray(cat.items)
+      ? cat.items
+      : Array.isArray(cat.ideas)
+      ? cat.ideas
+      : [];
+
+    upgrades.forEach((idea) => {
+      const ideaName: string =
+        idea.name || idea.title || idea.label || "Upgrade idea";
+
+      const ideaSummary: string =
+        idea.summary || idea.description || idea.details || "";
+
+      items.push({
+        "@type": "ListItem",
+        position: items.length + 1,
+        name: ideaName,
+        description: ideaSummary || undefined,
+      });
+    });
+  });
+
+  const itemList =
+    items.length > 0
+      ? {
+          "@type": "ItemList",
+          name: `Recommended upgrades for ${vehicleName}`,
+          itemListElement: items,
+        }
+      : undefined;
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: `Best upgrades for ${vehicleName}`,
+    description: data?.vehicleSummary
+      ? String(data.vehicleSummary)
+      : `Structured plan for upgrading a ${vehicleName} with tires, suspension, and other parts.`,
+    about: {
+      "@type": "Product",
+      name: vehicleName,
+      brand: make,
+      additionalType: "Car",
+    },
+    mainEntity: itemList,
+  };
 };
 
 const BestUpgradesVehiclePage: NextPage<PageProps> = ({
@@ -81,10 +150,7 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
     : [];
 
   const vehicleSummary: string =
-    data.vehicleSummary ||
-    data.summary ||
-    data.metaSummary ||
-    "";
+    data.vehicleSummary || data.summary || data.metaSummary || "";
 
   const handleAffiliateClick = (
     idea: AnyRecord,
@@ -112,12 +178,22 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
     vehicleSummary ||
     `See the highest-impact upgrades for your ${vehicleLabel} before you spend the money. Tires, suspension, accessories, and more — with fitment notes and tradeoffs.`;
 
+  const structuredData = buildStructuredData(year, make, model, data);
+
   // Sort categories by any of the common priority fields
   const sortedCategories = [...categories].sort((a, b) => {
     const pa =
-      a.priorityRank ?? a.priority ?? a.order ?? a.rank ?? Number.MAX_SAFE_INTEGER;
+      a.priorityRank ??
+      a.priority ??
+      a.order ??
+      a.rank ??
+      Number.MAX_SAFE_INTEGER;
     const pb =
-      b.priorityRank ?? b.priority ?? b.order ?? b.rank ?? Number.MAX_SAFE_INTEGER;
+      b.priorityRank ??
+      b.priority ??
+      b.order ??
+      b.rank ??
+      Number.MAX_SAFE_INTEGER;
     return pa - pb;
   });
 
@@ -126,10 +202,16 @@ const BestUpgradesVehiclePage: NextPage<PageProps> = ({
       <Head>
         <title>{title}</title>
         <meta name="description" content={metaDescription} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData),
+          }}
+        />
       </Head>
       <main className="min-h-screen bg-slate-950 text-slate-50">
         <div className="max-w-5xl mx-auto px-4 py-12 sm:py-16">
-          {/* HERO / MAGAZINE INTRO */}
+          {/* HERO / INTRO */}
           <header className="mb-10">
             <p className="text-xs font-semibold text-cyan-300 mb-2">
               AutoGrade Best Upgrades
@@ -440,7 +522,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (
         year,
         make,
         model,
-        // knobs like drivingStyle/budgetLevel/priorities can be added later
+        // later: drivingStyle, budgetLevel, priorities, etc.
       }),
     });
 
