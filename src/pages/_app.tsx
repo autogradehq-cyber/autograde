@@ -1,69 +1,89 @@
 // src/pages/_app.tsx
 import "../styles/globals.css";
 import type { AppProps } from "next/app";
-import Link from "next/link";
 import { useRouter } from "next/router";
+import { useEffect } from "react";
+import Link from "next/link";
+import Script from "next/script";
+import * as gtag from "../lib/gtag";
 
-function MyApp({ Component, pageProps }: AppProps) {
+export default function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
 
-  const isActive = (href: string) => {
-    // Highlight for exact match or nested routes (like /best-upgrades/2020/...)
-    return router.pathname === href || router.pathname.startsWith(href + "/");
-  };
+  // Highlight active nav link
+  const isActive = (href: string) =>
+    router.pathname === href || router.asPath.startsWith(href);
+
+  // GA4 pageview tracking
+  useEffect(() => {
+    const handleRouteChange = (url: string) => {
+      gtag.pageview(url);
+    };
+
+    router.events.on("routeChangeComplete", handleRouteChange);
+    return () => {
+      router.events.off("routeChangeComplete", handleRouteChange);
+    };
+  }, [router.events]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      {/* Global header with logo + nav */}
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          {/* Logo / brand */}
-          <Link href="/" className="flex items-center gap-2">
-            {/* If you have a real logo file in /public (e.g. /autograde-logo.svg),
-                replace this square with an <img> or <Image> */}
-            <span className="inline-flex items-center gap-2 cursor-pointer">
-              <span className="h-7 w-7 rounded-md bg-cyan-400/10 border border-cyan-400/40 flex items-center justify-center text-[10px] font-black text-cyan-300">
-                AG
-              </span>
-              <span className="text-sm sm:text-base font-semibold text-slate-50">
-                AutoGrade
-              </span>
-            </span>
+    <>
+      {/* Load GA script */}
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`}
+        strategy="afterInteractive"
+      />
+
+      {/* GA init */}
+      <Script id="ga-init" strategy="afterInteractive">
+        {`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){window.dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', {
+            debug_mode: true
+          });
+        `}
+      </Script>
+
+      {/* TOP NAV */}
+      <nav className="bg-slate-950 border-b border-slate-800 text-slate-100 px-6 py-3 flex items-center gap-8">
+        {/* Logo (text-based for now — we can add the graphic logo again next) */}
+        <Link href="/" className="font-bold text-lg tracking-tight">
+          AutoGrade
+        </Link>
+
+        <div className="flex gap-6 text-sm">
+          <Link
+            href="/compatibility"
+            className={isActive("/compatibility") ? "text-cyan-400" : "text-slate-300 hover:text-white"}
+          >
+            Compatibility Check
           </Link>
 
-          {/* Main navigation – only 2 flows for users */}
-          <nav className="flex items-center gap-3 text-xs sm:text-sm">
-            <Link
-              href="/best-upgrades"
-              className={
-                "px-3 py-1.5 rounded-md font-medium " +
-                (isActive("/best-upgrades")
-                  ? "bg-slate-800 text-slate-50"
-                  : "text-slate-300 hover:bg-slate-800/60 hover:text-slate-50")
-              }
-            >
-              Best upgrades &amp; compatibility
-            </Link>
+          <Link
+            href="/best-upgrades"
+            className={isActive("/best-upgrades") ? "text-cyan-400" : "text-slate-300 hover:text-white"}
+          >
+            Best Upgrades
+          </Link>
 
-            <Link
-              href="/fitment"
-              className={
-                "px-3 py-1.5 rounded-md font-medium " +
-                (isActive("/fitment")
-                  ? "bg-slate-800 text-slate-50"
-                  : "text-slate-300 hover:bg-slate-800/60 hover:text-slate-50")
-              }
-            >
-              Fitment check
-            </Link>
-          </nav>
+          <Link
+            href="/fitment"
+            className={isActive("/fitment") ? "text-cyan-400" : "text-slate-300 hover:text-white"}
+          >
+            Tire Fitment Tool
+          </Link>
         </div>
-      </header>
+      </nav>
 
-      {/* Page content */}
+      {/* Page Content */}
       <Component {...pageProps} />
-    </div>
+
+      {/* FOOTER */}
+      <footer className="text-center text-[13px] text-slate-600 py-10">
+        AutoGrade © {new Date().getFullYear()}
+      </footer>
+    </>
   );
 }
-
-export default MyApp;
