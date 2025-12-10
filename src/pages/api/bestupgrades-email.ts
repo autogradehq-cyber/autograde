@@ -1,4 +1,4 @@
-// src/pages/api/compatibility.ts
+// src/pages/api/bestupgrades-email.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import sgMail from "@sendgrid/mail";
 
@@ -10,7 +10,7 @@ if (SENDGRID_KEY) {
   sgMail.setApiKey(SENDGRID_KEY);
 } else {
   console.warn(
-    "[/api/compatibility] Missing SENDGRID_API_KEY; emails will fail until this is configured."
+    "[/api/bestupgrades-email] Missing SENDGRID_API_KEY; emails will fail until this is configured."
   );
 }
 
@@ -19,22 +19,31 @@ type ErrorResponse = { ok: false; error: string };
 
 type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
-const chooseVendor = (upgrade: string): AffiliateVendor => {
-  const t = (upgrade || "").toLowerCase();
+const chooseVendor = (upgradeName: string, category?: string): AffiliateVendor => {
+  const t = (upgradeName || "").toLowerCase();
+  const c = (category || "").toLowerCase();
 
-  if (t.includes("tire") || t.includes("wheel")) return "tirerack";
+  if (t.includes("tire") || t.includes("wheel") || c.includes("tire")) {
+    return "tirerack";
+  }
 
   if (
     t.includes("tonneau") ||
     t.includes("bed cover") ||
     t.includes("running board") ||
     t.includes("nerf bar") ||
-    t.includes("step")
+    t.includes("step") ||
+    c.includes("exterior")
   ) {
     return "realtruck";
   }
 
-  if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
+  if (
+    t.includes("lift") ||
+    t.includes("suspension") ||
+    t.includes("shock") ||
+    c.includes("suspension")
+  ) {
     return "amazon";
   }
 
@@ -46,6 +55,14 @@ const buildAffiliateUrl = (vendor: AffiliateVendor, keywords: string): string =>
   params.set("vendor", vendor);
   params.set("q", keywords || "auto upgrade");
   return `${SITE_URL}/api/out?${params.toString()}`;
+};
+
+type EmailUpgrade = {
+  name: string;
+  category?: string;
+  impactLabel?: string; // "High impact", "Medium", etc.
+  priceBand?: string;   // "budget" | "midrange" | "premium" | free text
+  notes?: string;       // short summary / why it matters
 };
 
 export default async function handler(
@@ -61,32 +78,25 @@ export default async function handler(
     make,
     model,
     trim,
-    upgrade,
     email,
     drivingStyle,
     budgetLevel,
-    topPriority,
-    fitmentConfidence,
-    valueScore,
-    recommendationSummary,
-    notes,
+    priorities,
+    planSummary,
+    upgrades,
   } = req.body || {};
 
-  if (!year || !make || !model || !upgrade || !email) {
+  if (!year || !make || !model || !email || !Array.isArray(upgrades)) {
     return res.status(400).json({
       ok: false,
       error:
-        "Missing required fields: year, make, model, upgrade, and email are required.",
+        "Missing required fields: year, make, model, email, and upgrades array are required.",
     });
   }
 
-  const vehicleLine = `${year} ${make} ${model}${
-    trim ? ` ${trim}` : ""
-  }`.trim();
-
   if (!SENDGRID_KEY) {
     console.error(
-      "[/api/compatibility] SENDGRID_API_KEY is not configured; cannot send email."
+      "[/api/bestupgrades-email] SENDGRID_API_KEY is not configured; cannot send email."
     );
     return res.status(500).json({
       ok: false,
@@ -95,9 +105,17 @@ export default async function handler(
     });
   }
 
-  // Build affiliate link
-  const keywords = `${year} ${make} ${model} ${upgrade}`.trim();
-  const vendor = chooseVendor(upgrade);
+  const vehicleLine = `${year} ${make} ${model}${
+    trim ? ` ${trim}` : ""
+  }`.trim();
+
+  const upgradeList = upgrades as EmailUpgrade[];
+
+  const topUpgrade = upgradeList[0];
+  const vendor = chooseVendor(topUpgrade?.name || "", topUpgrade?.category);
+  const keywords = `${year} ${make} ${model} ${topUpgrade?.name || ""} ${
+    topUpgrade?.category || ""
+  }`.trim();
   const affiliateUrl = buildAffiliateUrl(vendor, keywords);
 
   const vendorLabel =
@@ -107,42 +125,75 @@ export default async function handler(
       ? "RealTruck"
       : "Amazon";
 
-  // ---------- TEXT VERSION (fallback) ----------
-  const textLines: string[] = [
-    `Your AutoGrade Compatibility Breakdown`,
-    "",
-    `Vehicle & upgrade`,
-    `• Vehicle: ${vehicleLine}`,
-    `• Upgrade: ${upgrade}`,
-  ];
-  if (drivingStyle) textLines.push(`• Driving style: ${drivingStyle}`);
-  if (budgetLevel) textLines.push(`• Budget level: ${budgetLevel}`);
-  if (topPriority) textLines.push(`• Top priority: ${topPriority}`);
-  if (typeof fitmentConfidence !== "undefined")
-    textLines.push(`• Fitment confidence: ${fitmentConfidence}`);
-  if (typeof valueScore !== "undefined")
-    textLines.push(`• Value score: ${valueScore}`);
+  const safePlanSummary =
+    planSummary ||
+    "We’ve built a prioritized upgrade plan for your vehicle based on impact, risk, and budget.";
 
-  if (recommendationSummary) {
-    textLines.push("", "AutoGrade recommendation:", recommendationSummary);
-  }
-  if (notes) {
-    textLines.push("", "Additional notes:", notes);
-  }
+  // ---------- TEXT VERSION ----------
+  const textLines: string[] = [
+    "Your AutoGrade Best Upgrades Plan",
+    "",
+    `Vehicle: ${vehicleLine}`,
+  ];
+
+  if (drivingStyle) textLines.push(`Driving style: ${drivingStyle}`);
+  if (budgetLevel) textLines.push(`Budget level: ${budgetLevel}`);
+  if (priorities) textLines.push(`Top priorities: ${priorities}`);
+
+  textLines.push("", "Plan summary:", safePlanSummary, "", "Top upgrades:");
+
+  upgradeList.forEach((u, idx) => {
+    textLines.push(
+      ` ${idx + 1}. ${u.name}${
+        u.category ? ` (${u.category})` : ""
+      }${u.impactLabel ? ` – ${u.impactLabel}` : ""}${
+        u.priceBand ? ` [${u.priceBand}]` : ""
+      }${u.notes ? ` – ${u.notes}` : ""}`
+    );
+  });
 
   textLines.push(
     "",
-    `View matching parts on ${vendorLabel}: ${affiliateUrl}`,
+    `View parts for your top upgrade on ${vendorLabel}: ${affiliateUrl}`,
     "",
-    `You can always run another check at ${SITE_URL}/compatibility`
+    `You can always re-run your plan at ${SITE_URL}/best-upgrades`
   );
 
   const textBody = textLines.join("\n");
 
-  // ---------- HTML VERSION (branded template) ----------
-  const hasScores =
-    typeof fitmentConfidence !== "undefined" ||
-    typeof valueScore !== "undefined";
+  // ---------- HTML VERSION (branded, like compatibility email) ----------
+  const firstThree = upgradeList.slice(0, 3);
+
+  const upgradesHtml = firstThree
+    .map((u, idx) => {
+      return `
+      <tr>
+        <td style="padding:6px 0;">
+          <div style="border-radius:12px; border:1px solid #1f2937; background:#020617; padding:10px 12px;">
+            <div style="font-size:11px; color:#9ca3af; margin-bottom:2px;">
+              #${idx + 1}${
+        u.category ? ` · ${u.category}` : ""
+      }${u.priceBand ? ` · ${u.priceBand}` : ""}
+            </div>
+            <div style="font-size:13px; color:#e5e7eb; font-weight:600; margin-bottom:2px;">
+              ${u.name}
+            </div>
+            ${
+              u.impactLabel
+                ? `<div style="font-size:11px; color:#22c4ff; margin-bottom:2px;">${u.impactLabel}</div>`
+                : ""
+            }
+            ${
+              u.notes
+                ? `<div style="font-size:12px; color:#9ca3af; line-height:1.4;">${u.notes}</div>`
+                : ""
+            }
+          </div>
+        </td>
+      </tr>
+    `;
+    })
+    .join("");
 
   const htmlBody = `
   <div style="background-color:#020617; padding:24px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
@@ -152,7 +203,6 @@ export default async function handler(
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px; background-color:#020617; border-radius:18px; border:1px solid #0f172a;">
             <tr>
               <td style="padding:20px 20px 8px 20px;">
-                <!-- Header / mini logo row -->
                 <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
                   <tr>
                     <td>
@@ -168,7 +218,7 @@ export default async function handler(
                               AUTOGRADEHQ
                             </div>
                             <div style="font-size:11px; color:#64748b;">
-                              AI-Powered Upgrade Advisor
+                              Best Upgrades Plan
                             </div>
                           </td>
                         </tr>
@@ -185,23 +235,21 @@ export default async function handler(
             <tr>
               <td style="padding:0 20px 12px 20px;">
                 <h1 style="font-size:20px; margin:4px 0 8px 0; color:#e5e7eb; font-weight:600;">
-                  Your AutoGrade Compatibility Breakdown
+                  Your prioritized upgrade plan
                 </h1>
-                <p style="margin:0 0 16px 0; font-size:13px; color:#cbd5f5; line-height:1.5;">
-                  Thanks for checking your vehicle on <strong style="color:#f9fafb;">AutoGradeHQ</strong>.
-                  Here’s a summary you can keep and refer back to any time before you buy.
+                <p style="margin:0 0 12px 0; font-size:13px; color:#cbd5f5; line-height:1.5;">
+                  Here’s a snapshot of the upgrade plan we built for your vehicle on <strong style="color:#f9fafb;">AutoGradeHQ</strong>.
                 </p>
               </td>
             </tr>
 
-            <!-- Vehicle block -->
+            <!-- Vehicle & use case -->
             <tr>
               <td style="padding:0 20px 4px 20px;">
                 <div style="border-radius:14px; border:1px solid #1f2937; background:#020617; padding:14px 16px;">
-                  <h2 style="font-size:13px; margin:0 0 6px 0; color:#e5e7eb;">Vehicle & upgrade</h2>
+                  <h2 style="font-size:13px; margin:0 0 6px 0; color:#e5e7eb;">Vehicle & use case</h2>
                   <ul style="margin:0; padding-left:18px; font-size:13px; color:#e5e7eb; line-height:1.5;">
                     <li><strong>Vehicle:</strong> ${vehicleLine}</li>
-                    <li><strong>Upgrade:</strong> ${upgrade}</li>
                     ${
                       drivingStyle
                         ? `<li><strong>Driving style:</strong> ${drivingStyle}</li>`
@@ -213,8 +261,8 @@ export default async function handler(
                         : ""
                     }
                     ${
-                      topPriority
-                        ? `<li><strong>Top priority:</strong> ${topPriority}</li>`
+                      priorities
+                        ? `<li><strong>Top priorities:</strong> ${priorities}</li>`
                         : ""
                     }
                   </ul>
@@ -222,91 +270,48 @@ export default async function handler(
               </td>
             </tr>
 
-            ${
-              hasScores
-                ? `
-            <!-- Score cards row -->
+            <!-- Plan summary -->
             <tr>
-              <td style="padding:8px 20px 0 20px;">
-                <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
-                  <tr>
-                    ${
-                      typeof fitmentConfidence !== "undefined"
-                        ? `
-                    <td style="padding-right:6px;">
-                      <div style="border-radius:12px; border:1px solid #1f2937; background:#020617; padding:10px 12px;">
-                        <div style="font-size:11px; color:#9ca3af; margin-bottom:2px;">Fitment confidence</div>
-                        <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
-                          ${fitmentConfidence}/100
-                        </div>
-                      </div>
-                    </td>
-                        `
-                        : ""
-                    }
-                    ${
-                      typeof valueScore !== "undefined"
-                        ? `
-                    <td style="padding-left:6px;">
-                      <div style="border-radius:12px; border:1px solid #1f2937; background:#020617; padding:10px 12px;">
-                        <div style="font-size:11px; color:#9ca3af; margin-bottom:2px;">Value score</div>
-                        <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
-                          ${valueScore}/100
-                        </div>
-                      </div>
-                    </td>
-                        `
-                        : ""
-                    }
-                  </tr>
-                </table>
-              </td>
-            </tr>
-                `
-                : ""
-            }
-
-            <!-- Recommendation -->
-            ${
-              recommendationSummary
-                ? `
-            <tr>
-              <td style="padding:14px 20px 4px 20px;">
-                <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">AutoGrade recommendation</h2>
+              <td style="padding:10px 20px 0 20px;">
+                <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">Plan overview</h2>
                 <p style="margin:0 0 10px 0; font-size:13px; color:#cbd5f5; line-height:1.6;">
-                  ${recommendationSummary}
+                  ${safePlanSummary}
                 </p>
               </td>
             </tr>
-                `
-                : ""
-            }
 
-            <!-- Additional notes -->
+            <!-- Top upgrades -->
             ${
-              notes
+              firstThree.length
                 ? `
             <tr>
-              <td style="padding:4px 20px 10px 20px;">
-                <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">Additional notes</h2>
-                <p style="margin:0; font-size:13px; color:#9ca3af; line-height:1.6; white-space:pre-line;">
-                  ${notes}
-                </p>
+              <td style="padding:4px 20px 6px 20px;">
+                <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">Top upgrade moves</h2>
+                <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
+                  ${upgradesHtml}
+                </table>
+                ${
+                  upgradeList.length > 3
+                    ? `<p style="margin:4px 0 0 0; font-size:11px; color:#64748b;">+ ${
+                        upgradeList.length - 3
+                      } more upgrades in your full plan on AutoGradeHQ.</p>`
+                    : ""
+                }
               </td>
             </tr>
                 `
                 : ""
             }
 
-            <!-- CTA button -->
+            <!-- CTA -->
             <tr>
-              <td style="padding:12px 20px 4px 20px;">
+              <td style="padding:10px 20px 4px 20px;">
                 <table role="presentation" cellspacing="0" cellpadding="0">
                   <tr>
                     <td>
                       <a href="${affiliateUrl}"
                          style="display:inline-block; padding:10px 18px; border-radius:999px; background:#06b6d4; color:#020617; font-size:13px; font-weight:600; text-decoration:none;">
-                        View matching parts on ${vendorLabel}
+                        View parts for your top upgrade on ${vendorLabel}
                       </a>
                     </td>
                   </tr>
@@ -321,12 +326,12 @@ export default async function handler(
             <tr>
               <td style="padding:14px 20px 18px 20px;">
                 <p style="margin:0 0 4px 0; font-size:11px; color:#64748b; line-height:1.5;">
-                  Keep this email so you can reference it before you place an order.
-                  You can always run another check or start a fresh upgrade plan at
-                  <a href="${SITE_URL}/compatibility" style="color:#22c4ff; text-decoration:none;">autogradehq.com/compatibility</a>.
+                  Keep this email so you have your plan handy when you’re shopping.
+                  You can always re-run or tweak your plan at
+                  <a href="${SITE_URL}/best-upgrades" style="color:#22c4ff; text-decoration:none;">autogradehq.com/best-upgrades</a>.
                 </p>
                 <p style="margin:6px 0 0 0; font-size:10px; color:#475569;">
-                  You’re receiving this because you requested an upgrade compatibility breakdown on AutoGradeHQ.
+                  You’re receiving this because you requested a best upgrades plan on AutoGradeHQ.
                 </p>
               </td>
             </tr>
@@ -343,7 +348,7 @@ export default async function handler(
     await sgMail.send({
       to: email,
       from: FROM_EMAIL,
-      subject: `Your AutoGradeHQ compatibility breakdown – ${vehicleLine}`,
+      subject: `Your AutoGradeHQ best upgrades plan – ${vehicleLine}`,
       text: textBody,
       html: htmlBody,
     });
@@ -352,26 +357,27 @@ export default async function handler(
     await sgMail.send({
       to: FROM_EMAIL,
       from: FROM_EMAIL,
-      subject: "New AutoGradeHQ compatibility lead",
-      text: `New compatibility check request:
+      subject: "New AutoGradeHQ best-upgrades plan",
+      text: `New best-upgrades plan generated:
 
 Vehicle: ${vehicleLine}
-Upgrade: ${upgrade}
 Customer email: ${email}
 Driving style: ${drivingStyle || "n/a"}
 Budget level: ${budgetLevel || "n/a"}
-Top priority: ${topPriority || "n/a"}
+Priorities: ${priorities || "n/a"}
 
-Fitment confidence: ${
-        typeof fitmentConfidence !== "undefined" ? fitmentConfidence : "n/a"
-      }
-Value score: ${typeof valueScore !== "undefined" ? valueScore : "n/a"}
+Plan summary:
+${safePlanSummary}
 
-Recommendation summary:
-${recommendationSummary || "n/a"}
-
-Notes:
-${notes || "n/a"}
+Top upgrades:
+${upgradeList
+  .map(
+    (u, i) =>
+      `${i + 1}. ${u.name}${
+        u.category ? ` (${u.category})` : ""
+      } ${u.priceBand ? `[${u.priceBand}]` : ""} – ${u.impactLabel || ""}`
+  )
+  .join("\n")}
 
 Affiliate vendor: ${vendorLabel}
 Affiliate URL: ${affiliateUrl}
@@ -380,11 +386,11 @@ Affiliate URL: ${affiliateUrl}
 
     return res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("[/api/compatibility] Error sending email:", err);
+    console.error("[/api/bestupgrades-email] Error sending email:", err);
     return res.status(500).json({
       ok: false,
       error:
-        "There was a problem sending your breakdown email. Please try again in a moment.",
+        "There was a problem sending your best upgrades email. Please try again in a moment.",
     });
   }
 }

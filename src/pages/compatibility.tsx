@@ -139,7 +139,17 @@ const CompatibilityPage: NextPage = () => {
     setMessage("");
     setAiRecommendation(null);
 
-    const { year, make, model, trim, upgrade, email } = form;
+    const {
+      year,
+      make,
+      model,
+      trim,
+      upgrade,
+      email,
+      drivingStyle,
+      budgetLevel,
+      priorities,
+    } = form;
 
     if (!year || !make || !model || !upgrade || !email) {
       setStatus("error");
@@ -158,43 +168,12 @@ const CompatibilityPage: NextPage = () => {
     });
 
     setIsSubmitting(true);
+    setAiLoading(true);
+
+    let recommendation: UpgradeRecommendation | null = null;
 
     try {
-      // 1) Compatibility API (email + lead)
-      const compatRes = await fetch("/api/compatibility", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          year,
-          make,
-          model,
-          trim,
-          upgrade,
-          email,
-        }),
-      });
-
-      if (!compatRes.ok) {
-        throw new Error("Compatibility request failed");
-      }
-
-      // Track generate_lead in GA4
-      trackEvent("generate_lead", {
-        form_type: "compatibility",
-        upgrade_type: upgrade,
-        vehicle_year: year,
-        vehicle_make: make,
-        vehicle_model: model,
-        vehicle_trim: trim,
-      });
-
-      setStatus("success");
-      setMessage(
-        "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
-      );
-
-      // 2) AI recommendations (non-blocking)
-      setAiLoading(true);
+      // 1) Get AI recommendation first so we can email the same breakdown
       try {
         const aiRes = await fetch("/api/recommendations", {
           method: "POST",
@@ -205,9 +184,9 @@ const CompatibilityPage: NextPage = () => {
             model,
             trim,
             upgradeType: upgrade,
-            drivingStyle: form.drivingStyle,
-            budgetLevel: form.budgetLevel,
-            priorities: form.priorities,
+            drivingStyle,
+            budgetLevel,
+            priorities,
             email,
           }),
         });
@@ -219,6 +198,7 @@ const CompatibilityPage: NextPage = () => {
           };
 
           if (data.ok && data.recommendation) {
+            recommendation = data.recommendation;
             setAiRecommendation(data.recommendation);
           } else {
             console.warn(
@@ -239,6 +219,72 @@ const CompatibilityPage: NextPage = () => {
       } finally {
         setAiLoading(false);
       }
+
+      // 2) Build payload for compatibility email, including score card info
+      const payload: any = {
+        year,
+        make,
+        model,
+        trim,
+        upgrade,
+        email,
+        drivingStyle,
+        budgetLevel,
+        topPriority: priorities,
+      };
+
+      if (recommendation) {
+        // Numbers like 0–100 are fine to send directly
+        payload.fitmentConfidence = recommendation.fitmentConfidence;
+        payload.valueScore = recommendation.valueScore;
+
+        // Short explanation or overview as the main summary
+        payload.recommendationSummary =
+          recommendation.shortExplanation || recommendation.overview;
+
+        const decisionText =
+          (recommendation as any).decisionSummary ||
+          (recommendation as any).decision ||
+          "";
+
+        const potentialIssuesText = recommendation.potentialIssues?.length
+          ? `Potential issues: ${recommendation.potentialIssues.join("; ")}`
+          : "";
+
+        payload.notes = [decisionText, potentialIssuesText]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+
+      // 3) Compatibility API (email + lead)
+      const compatRes = await fetch("/api/compatibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const compatData = await compatRes.json().catch(() => null);
+
+      if (!compatRes.ok || !compatData?.ok) {
+        throw new Error(
+          compatData?.error || "Compatibility request failed."
+        );
+      }
+
+      // Track generate_lead in GA4
+      trackEvent("generate_lead", {
+        form_type: "compatibility",
+        upgrade_type: upgrade,
+        vehicle_year: year,
+        vehicle_make: make,
+        vehicle_model: model,
+        vehicle_trim: trim,
+      });
+
+      setStatus("success");
+      setMessage(
+        "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
+      );
 
       // Reset key fields (but keep prefs)
       setForm((prev) => ({

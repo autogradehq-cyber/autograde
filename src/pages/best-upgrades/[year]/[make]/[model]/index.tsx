@@ -1,5 +1,5 @@
 // src/pages/best-upgrades/[year]/[make]/[model]/index.tsx
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { NextPage } from "next";
 import Head from "next/head";
 import { useRouter } from "next/router";
@@ -372,6 +372,11 @@ function buildUpgradePlan(ctx: BuildContext): Upgrade[] {
 }
 
 const BestUpgradesResultPage: NextPage = () => {
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle"
+  );
+  const [emailMessage, setEmailMessage] = useState<string>("");
+
   const router = useRouter();
   const { year, make, model } = router.query;
 
@@ -393,14 +398,37 @@ const BestUpgradesResultPage: NextPage = () => {
     };
   }, [year, make, model, use, budget, drivingStyle, priority]);
 
-  const upgrades = useMemo(
-    () => (ctx ? buildUpgradePlan(ctx) : []),
-    [ctx]
-  );
+  const upgrades = useMemo(() => (ctx ? buildUpgradePlan(ctx) : []), [ctx]);
 
   const vehicleLabel = ctx
     ? `${ctx.year} ${ctx.make} ${ctx.model}`.trim()
     : "Your vehicle";
+
+  const planSummaryText = ctx
+    ? `This plan focuses on ${
+        ctx.priority === "safety"
+          ? "safety and control"
+          : ctx.priority === "performance"
+          ? "performance feel"
+          : "comfort and refinement"
+      }, with ${
+        ctx.budget === "low"
+          ? "a tight budget in mind"
+          : ctx.budget === "medium"
+          ? "a flexible but sensible budget"
+          : "room for higher-end parts"
+      } for ${
+        ctx.use === "daily"
+          ? "daily driving"
+          : ctx.use === "towing"
+          ? "towing and hauling"
+          : ctx.use === "offroad"
+          ? "trails and light off-road"
+          : ctx.use === "performance"
+          ? "spirited driving"
+          : "mixed use"
+      }.`
+    : "";
 
   const buildRetailLink = (category: UpgradeCategory, retailer: "amazon" | "tirerack") => {
     if (!ctx) return "#";
@@ -433,6 +461,61 @@ const BestUpgradesResultPage: NextPage = () => {
     });
   };
 
+  async function sendPlanEmail(email: string) {
+    if (!ctx) return;
+
+    try {
+      setEmailStatus("sending");
+      setEmailMessage("");
+
+      const payload = {
+        year: ctx.year,
+        make: ctx.make,
+        model: ctx.model,
+        trim: "",
+        email,
+        drivingStyle: ctx.drivingStyle,
+        budgetLevel: ctx.budget,
+        priorities: ctx.priority,
+        planSummary: planSummaryText,
+        upgrades: upgrades.map((u) => ({
+          name: u.title,
+          category: u.category,
+          impactLabel: impactLabel[u.impact],
+          // using estCost as a loose "price band" label for the email
+          priceBand: u.estCost,
+          notes: u.description,
+        })),
+      };
+
+      const res = await fetch("/api/bestupgrades-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to send plan email");
+      }
+
+      setEmailStatus("sent");
+      setEmailMessage("Plan emailed! Check your inbox for a copy of this upgrade plan.");
+      gtag.event?.("best_upgrades_email_sent", {
+        vehicle_year: ctx.year,
+        vehicle_make: ctx.make,
+        vehicle_model: ctx.model,
+      });
+    } catch (err) {
+      console.error("[best-upgrades] Error sending plan email:", err);
+      setEmailStatus("error");
+      setEmailMessage(
+        "We couldn’t send the email just now. Please try again in a few moments."
+      );
+    }
+  }
+
   if (!ctx) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -454,9 +537,7 @@ const BestUpgradesResultPage: NextPage = () => {
   return (
     <>
       <Head>
-        <title>
-          Best upgrades for {vehicleLabel} – AutoGradeHQ
-        </title>
+        <title>Best upgrades for {vehicleLabel} – AutoGradeHQ</title>
         <meta
           name="description"
           content={`A prioritized upgrade plan for your ${vehicleLabel}, based on how you drive and your budget.`}
@@ -505,6 +586,48 @@ const BestUpgradesResultPage: NextPage = () => {
             </p>
           </header>
 
+          {/* Email plan card */}
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-5">
+            <p className="text-xs text-slate-300 mb-2">
+              Want to keep this plan handy? Email yourself a copy with a recap and a link
+              to shop the top upgrade.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const email = String(formData.get("planEmail") || "").trim();
+                if (!email) return;
+                sendPlanEmail(email);
+              }}
+              className="flex flex-col sm:flex-row gap-2"
+            >
+              <input
+                name="planEmail"
+                type="email"
+                required
+                placeholder="you@example.com"
+                className="flex-1 rounded-md bg-slate-950/80 border border-slate-700 px-3 py-2 text-xs text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 focus:border-cyan-400/70"
+              />
+              <button
+                type="submit"
+                disabled={emailStatus === "sending"}
+                className="inline-flex items-center justify-center rounded-md bg-cyan-400 px-3 py-2 text-xs font-semibold text-slate-950 shadow shadow-cyan-500/25 hover:bg-cyan-300 transition disabled:opacity-60"
+              >
+                {emailStatus === "sending" ? "Sending..." : "Email me this plan"}
+              </button>
+            </form>
+            {emailMessage && (
+              <p
+                className={`mt-2 text-[11px] ${
+                  emailStatus === "error" ? "text-red-400" : "text-emerald-400"
+                }`}
+              >
+                {emailMessage}
+              </p>
+            )}
+          </section>
+
           {/* Upgrade list */}
           <section className="space-y-5">
             {upgrades.map((upgrade, index) => (
@@ -515,8 +638,7 @@ const BestUpgradesResultPage: NextPage = () => {
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-400 mb-1">
-                      #{index + 1} —{" "}
-                      {upgrade.category.toUpperCase()}
+                      #{index + 1} — {upgrade.category.toUpperCase()}
                     </p>
                     <h2 className="text-lg font-semibold text-slate-50">
                       {upgrade.title}
@@ -560,9 +682,7 @@ const BestUpgradesResultPage: NextPage = () => {
 
                 <div className="grid gap-4 sm:grid-cols-3 text-xs text-slate-300 mb-4">
                   <div className="sm:col-span-1">
-                    <p className="font-semibold text-slate-100 mb-1">
-                      Pros
-                    </p>
+                    <p className="font-semibold text-slate-100 mb-1">Pros</p>
                     <ul className="list-disc list-inside space-y-1">
                       {upgrade.pros.map((p) => (
                         <li key={p}>{p}</li>
@@ -620,9 +740,8 @@ const BestUpgradesResultPage: NextPage = () => {
 
           <footer className="border-t border-slate-800 pt-6 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-[11px] text-slate-400">
-              This is a starting point, not a hard rulebook. Always double-check
-              exact fitment before ordering parts—especially wheels, tires, and
-              suspension.
+              This is a starting point, not a hard rulebook. Always double-check exact
+              fitment before ordering parts—especially wheels, tires, and suspension.
             </div>
             <div className="flex flex-wrap gap-2 text-[11px]">
               <Link
