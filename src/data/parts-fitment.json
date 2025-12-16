@@ -1,0 +1,41 @@
+[
+  {
+    "partNumber": "BFG2857017KO2",
+    "altPartNumbers": ["285/70R17KO2", "KO2-285-70-17"],
+    "brand": "BFGoodrich",
+    "category": "tire",
+    "title": "KO2 all-terrain tire – 285/70R17",
+    "description": "LT all-terrain tire aimed at mixed on/off-road use with good load capacity.",
+    "vendor": "tirerack",
+    "affiliateUrl": "https://www.kqzyfj.com/click-101596318-10377982",
+    "rules": [
+      {
+        "fromYear": 2016,
+        "toYear": 2023,
+        "make": "toyota",
+        "model": "tacoma",
+        "trims": ["trd off-road", "trd sport", "sr5"],
+        "maxLiftIn": 2.5,
+        "notes": "Common 285/70R17 upgrade. On 0–2.5\" lifts many trucks need minor trimming at full lock and wheel-well liner heat-gun work."
+      }
+    ]
+  },
+  {
+    "partNumber": "OME-TACOMA-2IN-KIT",
+    "brand": "Old Man Emu",
+    "category": "suspension",
+    "title": "2\" Tacoma suspension kit",
+    "description": "Mild 2\" lift focused on load handling and control.",
+"vendor": "amazon",
+"affiliateUrl": "https://amzn.to/4q74cNS",
+"rules": [
+      {
+        "fromYear": 2016,
+        "toYear": 2023,
+        "make": "toyota",
+        "model": "tacoma",
+        "notes": "Works on most trims. Check specific spring rates vs. bumper/armor weight. Often paired with 265/75R16 or 285/70R17 tires."
+      }
+    ]
+  }
+]
