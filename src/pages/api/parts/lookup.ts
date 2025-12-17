@@ -22,47 +22,27 @@ function isPlaceholderUrl(url: string) {
   return (
     u.includes("your-affiliate-link-here") ||
     u.includes("example.com") ||
-    u.includes("placeholder")
+    u.includes("placeholder") ||
+    u.includes("/asin/") // common mistake
   );
 }
 
 /**
- * Build a final affiliate URL from a vendor + destination URL.
- * - For Tire Rack: wraps destination URL in your affiliate redirect template from .env.local
- * - For other vendors: pass-through the destination URL
+ * Your dataset currently stores FINAL outbound affiliate links (CJ, amzn.to, etc.).
+ * So the API should:
+ * - validate basic URL shape
+ * - block placeholders
+ * - return the URL as-is
  */
-function buildAffiliateUrl(
-  vendor: string | null,
-  destinationUrl: string | null
-): string | null {
-  if (!vendor || !destinationUrl) return null;
+function finalizeAffiliateUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
 
-  // Never ship placeholders
-  if (isPlaceholderUrl(destinationUrl)) return null;
+  if (isPlaceholderUrl(url)) return null;
 
-  // Guard against missing protocol (optional but recommended)
-  if (!/^https?:\/\//i.test(destinationUrl)) {
-    return null;
-  }
+  // Require http(s) URL
+  if (!/^https?:\/\//i.test(url)) return null;
 
-  if (vendor !== "tirerack") {
-    return destinationUrl;
-  }
-
-  const base = process.env.TIRERACK_AFFILIATE_BASE_URL;
-  const param = process.env.TIRERACK_AFFILIATE_DEST_PARAM || "url";
-
-  // If env is not configured yet, fall back to direct Tire Rack destination URL
-  if (!base) return destinationUrl;
-
-  try {
-    const u = new URL(base);
-    u.searchParams.set(param, destinationUrl);
-    return u.toString();
-  } catch {
-    // If base URL is malformed, fall back to destination
-    return destinationUrl;
-  }
+  return url;
 }
 
 export default function handler(
@@ -77,7 +57,7 @@ export default function handler(
 
   const { year, make, model, trim, partNumber } = req.body || {};
 
-  // Keep this lightweight; deeper validation happens in findPartFitment
+  // Lightweight validation; deep validation in findPartFitment
   if (!year || !make || !model || !partNumber) {
     return res.status(400).json({
       ok: false,
@@ -94,7 +74,6 @@ export default function handler(
     partNumber: String(partNumber),
   });
 
-  // --- Status-aware mapping ---
   if (result.status === "INVALID_INPUT") {
     return res.status(400).json({
       ok: false,
@@ -112,26 +91,23 @@ export default function handler(
   }
 
   if (result.status === "NO_VEHICLE_MATCH") {
-    // Treat as a successful lookup of the part record; no rule coverage yet.
-    // UI can show the message and (optionally) gate the affiliate CTA based on status.
+    // Recognized part record, but no verified rule coverage for that vehicle.
+    // Keep CTA gated off for now.
     return res.status(200).json({
       ok: true,
       status: "NO_VEHICLE_MATCH",
       summary: result.summary,
-      affiliateUrl: null, // recommended: no CTA when not verified
+      affiliateUrl: null,
       vendor: null,
     });
   }
 
   // FOUND
-  const vendor = result.vendor || null;
-  const finalAffiliateUrl = buildAffiliateUrl(vendor, result.affiliateUrl || null);
-
   return res.status(200).json({
     ok: true,
     status: "FOUND",
     summary: result.summary,
-    affiliateUrl: finalAffiliateUrl,
-    vendor,
+    affiliateUrl: finalizeAffiliateUrl(result.affiliateUrl),
+    vendor: result.vendor || null,
   });
 }

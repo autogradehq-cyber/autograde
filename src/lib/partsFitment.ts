@@ -18,6 +18,8 @@ export type PartCategory =
 
 export type AffiliateVendor = "amazon" | "tirerack" | "realtruck" | "other";
 
+export type FitmentConfidence = "verified" | "conditional" | "unknown";
+
 export interface FitmentRule {
   fromYear: number;
   toYear: number;
@@ -26,6 +28,11 @@ export interface FitmentRule {
   trims?: string[]; // normalized trims
   maxLiftIn?: number;
   notes?: string;
+
+  // Step 1 schema expansion (optional / backward-compatible)
+  confidence?: FitmentConfidence;
+  verifiedBy?: string; // e.g. "AutoGradeHQ" or shop name
+  lastVerified?: string; // ISO date string e.g. "2025-12-16"
 }
 
 export interface PartFitmentRecord {
@@ -38,6 +45,9 @@ export interface PartFitmentRecord {
   vendor: AffiliateVendor;
   affiliateUrl: string;
   rules: FitmentRule[];
+
+  // Step 1 schema expansion (optional / backward-compatible)
+  updatedAt?: string; // ISO date string
 }
 
 export interface PartLookupInput {
@@ -68,29 +78,36 @@ export interface PartLookupResult {
 }
 
 /* =========================================================
-   Helpers
+   Data
 ========================================================= */
 
 const parts: PartFitmentRecord[] = partsData as unknown as PartFitmentRecord[];
 
+/* =========================================================
+   Normalization / Validation Helpers
+========================================================= */
+
 const normalizeText = (str: string) => (str || "").trim().toLowerCase();
 
 /**
- * Part number canonicalization:
+ * Canonical part number:
  * - uppercase
  * - strip ALL non-alphanumeric characters
- *
- * This avoids mismatch from spaces, hyphens, slashes, etc.
- * IMPORTANT: It does not “guess” tire-size semantics (e.g., removing an 'R').
- * Keep dataset + entry conventions consistent; add a tire-size layer later if needed.
  */
 const normalizePartNumber = (str: string) =>
   (str || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 /**
- * Alias maps (expand over time as your dataset grows).
- * Keep conservative: only include mappings you’re confident about.
+ * Conservative aliasing for common user inputs.
+ * Only map shortcuts you are confident about.
+ * (You can expand these over time.)
  */
+const PART_ALIASES: Record<string, string> = {
+  // Example: simple shortcuts
+  KO2: "BFG2857017KO2",
+  BFGKO2: "BFG2857017KO2",
+};
+
 const MAKE_ALIASES: Record<string, string> = {
   chevy: "chevrolet",
   vw: "volkswagen",
@@ -114,6 +131,15 @@ const canonicalModel = (modelRaw: string) => {
 
 const canonicalTrim = (trimRaw?: string) => normalizeText(trimRaw || "");
 
+/**
+ * Apply part alias BEFORE hard canonicalization.
+ */
+const canonicalPartNumber = (raw: string) => {
+  const upper = (raw || "").trim().toUpperCase();
+  const aliasHit = PART_ALIASES[upper];
+  return normalizePartNumber(aliasHit ?? upper);
+};
+
 const parseYear = (yearRaw: string | number) => {
   const y =
     typeof yearRaw === "number" ? yearRaw : parseInt(String(yearRaw), 10);
@@ -124,6 +150,12 @@ const buildVehicleLabel = (input: PartLookupInput) => {
   const base = `${input.year} ${input.make} ${input.model}`;
   return input.trim ? `${base} ${input.trim}` : base;
 };
+
+/**
+ * For consistent comparison, normalize rule-side values too.
+ */
+const normalizeRuleMake = (ruleMake: string) => canonicalMake(ruleMake);
+const normalizeRuleModel = (ruleModel: string) => canonicalModel(ruleModel);
 
 /* =========================================================
    Core Lookup Logic
@@ -149,7 +181,7 @@ export function findPartFitment(
   d?: string,
   e?: string
 ): PartLookupResult {
-  // --- Normalize arguments into the object form ---
+  // --- Normalize args into object form ---
   const input: PartLookupInput =
     typeof a === "string"
       ? {
@@ -163,13 +195,13 @@ export function findPartFitment(
 
   // --- Parse + normalize input (single source of truth) ---
   const year = parseYear(input.year);
-  const partNumber = normalizePartNumber(input.partNumber);
+  const partNumber = canonicalPartNumber(input.partNumber);
 
   const make = canonicalMake(input.make);
   const model = canonicalModel(input.model);
   const trim = canonicalTrim(input.trim);
 
-  // --- Mechanic-grade validation guardrails ---
+  // --- Validation guardrails ---
   if (!partNumber) {
     return {
       found: false,
@@ -239,12 +271,13 @@ export function findPartFitment(
     if (!Number.isFinite(fromYear) || !Number.isFinite(toYear)) return false;
 
     if (year < fromYear || year > toYear) return false;
-    if (canonicalMake(r.make) !== make) return false;
-    if (canonicalModel(r.model) !== model) return false;
+
+    if (normalizeRuleMake(r.make) !== make) return false;
+    if (normalizeRuleModel(r.model) !== model) return false;
 
     // Trim logic:
     // - If rule has trims and user provided trim, require a match.
-    // - If rule has trims but user did not provide trim, allow pass-through (mechanic-friendly).
+    // - If rule has trims but user did not provide trim, allow pass-through.
     if (r.trims && r.trims.length) {
       if (!trim) return true;
       return r.trims.some((t) => canonicalTrim(t) === trim);
@@ -253,7 +286,7 @@ export function findPartFitment(
     return true;
   });
 
-  // --- Step 3: Human-readable summary (preserve your current style) ---
+  // --- Step 3: Human-readable summary ---
   const vehicleLabel = buildVehicleLabel(input);
 
   let summary = `${record.title} (${record.brand})\n\n`;
@@ -263,6 +296,18 @@ export function findPartFitment(
 
     if (matchedRule.maxLiftIn) {
       summary += ` Fitment notes assume up to ~${matchedRule.maxLiftIn}" of lift.`;
+    }
+
+    // Confidence line (optional, only if present)
+    if (matchedRule.confidence) {
+      const label =
+        matchedRule.confidence === "verified"
+          ? "Verified"
+          : matchedRule.confidence === "conditional"
+          ? "Conditional"
+          : "Unknown";
+      summary += `\n\nConfidence: ${label}.`;
+      if (matchedRule.lastVerified) summary += ` Last verified: ${matchedRule.lastVerified}.`;
     }
 
     if (matchedRule.notes) {
@@ -290,7 +335,7 @@ export function findPartFitment(
     record,
     matchedRule: undefined,
     summary,
-    // IMPORTANT: returning affiliateUrl/vendor is okay, but many teams prefer gating CTA at the UI for NO_VEHICLE_MATCH
+    // Your API/UI can gate CTAs for NO_VEHICLE_MATCH (recommended).
     affiliateUrl: record.affiliateUrl,
     vendor: record.vendor,
   };

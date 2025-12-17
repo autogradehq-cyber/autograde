@@ -123,6 +123,21 @@ function estimateFitment(
         "We couldn’t read one of the tire sizes. Please use a format like 265/65R17.",
     };
   }
+function estimateConfidence(result: FitmentResult): "High" | "Medium" | "Low" {
+  const dia = Math.abs(result.diameterChangePct ?? 0);
+  const w = Math.abs(result.widthChangeMm ?? 0);
+
+  // Conservative thresholds (tweak later)
+  if (dia <= 2 && w <= 10) return "High";
+  if (dia <= 5 && w <= 25) return "Medium";
+  return "Low";
+}
+
+function confidenceCopy(level: "High" | "Medium" | "Low"): string {
+  if (level === "High") return "Typical change range";
+  if (level === "Medium") return "Common upgrade range";
+  return "Large change — verify carefully";
+}
 
   const stockDia = tireDiameterIn(stock);
   const newDia = tireDiameterIn(fresh);
@@ -337,7 +352,7 @@ const FitmentPage: NextPage = () => {
             <p className="text-xs font-semibold text-cyan-300 mb-2">
               AutoGrade Fitment Tool
             </p>
-            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-50 mb-3">
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-50 mb-4">
               Quick fitment check — before you order parts.
             </h1>
 
@@ -440,7 +455,27 @@ const FitmentPage: NextPage = () => {
               DRIVER / DIY MODE
           ============================ */}
           {!isShopMode && (
-            <div className="grid gap-8 lg:grid-cols-[3fr,2fr] items-start">
+            <>
+            {/* Driver / DIY guidance */}
+<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+  <h2 className="text-sm font-semibold text-slate-100 mb-1">
+    Find upgrades that actually fit — before you order.
+  </h2>
+
+  <p className="text-xs text-slate-400 max-w-2xl">
+    AutoGrade helps everyday drivers compare stock and upgraded setups to
+    understand size changes, clearance risk, and common fitment considerations.
+    This tool is designed to reduce returns, wasted time, and guesswork when
+    choosing parts.
+  </p>
+
+  <p className="mt-2 text-[11px] text-slate-500">
+    Results are guidance-based and should always be verified against manufacturer
+    specifications and on-vehicle clearances.
+  </p>
+</div>
+
+          <div className="grid gap-8 lg:grid-cols-[3fr,2fr] items-start">
               {/* LEFT: Form */}
               <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6">
                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -713,6 +748,7 @@ const FitmentPage: NextPage = () => {
                 </div>
               </section>
             </div>
+          </>
           )}
         </div>
       </main>
