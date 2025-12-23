@@ -48,16 +48,22 @@ type FitmentForm = {
   partNumber: string;
   supplier: string;
 };
+type Confidence = "VERIFIED" | "CONDITIONAL" | "UNKNOWN";
+type FitmentStatus = "FOUND" | "NO_VEHICLE_MATCH" | "PART_NOT_FOUND" | "INVALID_INPUT";
 
 type FitmentResult = {
   ok: boolean;
+    status?: FitmentStatus;
+  confidence?: Confidence;
+  confidenceLabel?: string; // optional convenience for UI text (e.g., "Verified")
+
   stockDiameterIn?: number;
   newDiameterIn?: number;
   diameterChangePct?: number;
   widthChangeMm?: number;
   speedometerErrorPct?: number;
-  rubRiskLabel: string;
-  installerNotes: string;
+  rubRiskLabel?: string;
+  installerNotes?: string;
 };
 
 const initialForm: FitmentForm = {
@@ -207,6 +213,10 @@ const FitmentPage: NextPage = () => {
   const [lookupFitmentStatus, setLookupFitmentStatus] = useState<
     "FOUND" | "NO_VEHICLE_MATCH" | null
   >(null);
+ const [lookupConfidence, setLookupConfidence] = useState<
+  "VERIFIED" | "CONDITIONAL" | "UNKNOWN"
+>("UNKNOWN");
+ 
 
   const isShopMode = form.userType === "shop";
 
@@ -250,25 +260,35 @@ const FitmentPage: NextPage = () => {
         throw new Error(data?.error || "Lookup failed");
       }
 
-      const statusSafe =
-        data.status === "FOUND" || data.status === "NO_VEHICLE_MATCH"
-          ? data.status
-          : "FOUND";
+  const statusSafe: "FOUND" | "NO_VEHICLE_MATCH" =
+  data.status === "FOUND" || data.status === "NO_VEHICLE_MATCH"
+    ? data.status
+    : "FOUND";
 
-      setLookupStatus("success");
-      setLookupMessage(data.summary || "");
-      setLookupFitmentStatus(statusSafe);
-      setLookupAffiliateUrl(data.affiliateUrl ?? null);
-      setLookupVendor(data.vendor ?? null);
+const confidenceSafe: "VERIFIED" | "CONDITIONAL" | "UNKNOWN" =
+  data.confidence === "VERIFIED" ||
+  data.confidence === "CONDITIONAL" ||
+  data.confidence === "UNKNOWN"
+    ? data.confidence
+    : "UNKNOWN";
 
-      trackEvent("mechanic_part_lookup", {
-        status: statusSafe,
-        year: vehicleYear,
-        make: vehicleMake,
-        model: vehicleModel,
-        part_number: partNumber,
-        vendor: data.vendor ?? undefined,
-      });
+setLookupStatus("success");
+setLookupMessage(data.summary || "");
+setLookupFitmentStatus(statusSafe);
+setLookupAffiliateUrl(data.affiliateUrl ?? null);
+setLookupVendor(data.vendor ?? null);
+setLookupConfidence(confidenceSafe);
+
+trackEvent("mechanic_part_lookup", {
+  status: statusSafe,
+  confidence: confidenceSafe, // add this (see #2)
+  year: vehicleYear,
+  make: vehicleMake,
+  model: vehicleModel,
+  part_number: partNumber,
+  vendor: data.vendor ?? undefined,
+});
+
     } catch (err: any) {
       setLookupStatus("error");
       setLookupMessage(err?.message || "Lookup failed");
@@ -372,6 +392,8 @@ const FitmentPage: NextPage = () => {
                     setLookupAffiliateUrl(null);
                     setLookupVendor(null);
                     setLookupFitmentStatus(null);
+                    setLookupConfidence("UNKNOWN");
+
                   }}
                   className={
                     "px-3 py-1 rounded-full text-[11px] font-semibold transition-colors " +
@@ -648,8 +670,32 @@ const FitmentPage: NextPage = () => {
                     </p>
                   )}
 
-                  {result && (
+            {result && (
                     <div className="space-y-4">
+                      {result.confidence && (
+  <div className="mb-2">
+    <span
+      className={
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold " +
+        (result.confidence === "VERIFIED"
+          ? "bg-emerald-100 text-emerald-800"
+          : result.confidence === "CONDITIONAL"
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-100 text-slate-700")
+      }
+      
+    >
+      {result.confidence === "VERIFIED"
+        ? "Verified"
+        : result.confidence === "CONDITIONAL"
+        ? "Conditional"
+        : "Unknown"}
+    </span>
+    
+  </div>
+  
+)}
+
                       <div className="grid gap-3 text-[11px] sm:grid-cols-3">
                         <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2">
                           <p className="text-slate-400 mb-0.5">Vehicle</p>
@@ -749,7 +795,7 @@ const FitmentPage: NextPage = () => {
               </section>
             </div>
           </>
-          )}
+          )}      
         </div>
       </main>
     </>

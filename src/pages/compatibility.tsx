@@ -46,10 +46,7 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
   return "amazon";
 };
 
-const buildAffiliateUrl = (
-  vendor: AffiliateVendor,
-  keywords: string
-): string => {
+const buildAffiliateUrl = (vendor: AffiliateVendor, keywords: string): string => {
   const params = new URLSearchParams();
   params.set("vendor", vendor);
   params.set("q", keywords || "auto upgrade");
@@ -96,6 +93,38 @@ const estimateValueFromPriceBand = (
   }
 };
 
+// ---- Confidence helpers (conversion psychology + gating) ----
+type Confidence = "VERIFIED" | "CONDITIONAL" | "UNKNOWN";
+
+/**
+ * Map the AI numeric fitmentConfidence (0–100) to your badge taxonomy.
+ * This is intentionally conservative; adjust thresholds later once you have data.
+ */
+const deriveConfidenceFromScore = (score: number | null | undefined): Confidence => {
+  if (typeof score !== "number" || Number.isNaN(score)) return "UNKNOWN";
+  if (score >= 80) return "VERIFIED";
+  if (score >= 50) return "CONDITIONAL";
+  return "UNKNOWN";
+};
+
+const confidenceBadgeClasses = (c: Confidence) =>
+  "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold " +
+  (c === "VERIFIED"
+    ? "bg-emerald-100 text-emerald-800"
+    : c === "CONDITIONAL"
+    ? "bg-amber-100 text-amber-800"
+    : "bg-slate-100 text-slate-700");
+
+const confidenceLabel = (c: Confidence) =>
+  c === "VERIFIED" ? "Verified" : c === "CONDITIONAL" ? "Conditional" : "Unknown";
+
+const confidenceInterpretation = (c: Confidence) =>
+  c === "VERIFIED"
+    ? "Verified fitment confidence for this upgrade direction based on the info provided."
+    : c === "CONDITIONAL"
+    ? "Likely fit, but verify requirements (clearance, trimming, lift/offset, alignment) before purchase."
+    : "Unknown fitment confidence—run a full compatibility check and verify before purchasing.";
+
 const CompatibilityPage: NextPage = () => {
   const [form, setForm] = useState<FormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -115,7 +144,8 @@ const CompatibilityPage: NextPage = () => {
   const handleAffiliateClick = (
     ideaType: string,
     vendor: AffiliateVendor,
-    priceBand: "budget" | "midrange" | "premium"
+    priceBand: "budget" | "midrange" | "premium",
+    confidence: Confidence
   ) => {
     const estimatedValue = estimateValueFromPriceBand(priceBand);
 
@@ -127,6 +157,7 @@ const CompatibilityPage: NextPage = () => {
       vehicle_trim: form.trim,
       vendor,
       price_band: priceBand,
+      confidence, // NEW: confidence parameter for analysis
       affiliate_value: estimatedValue,
       value: estimatedValue,
       currency: "USD",
@@ -266,9 +297,7 @@ const CompatibilityPage: NextPage = () => {
       const compatData = await compatRes.json().catch(() => null);
 
       if (!compatRes.ok || !compatData?.ok) {
-        throw new Error(
-          compatData?.error || "Compatibility request failed."
-        );
+        throw new Error(compatData?.error || "Compatibility request failed.");
       }
 
       // Track generate_lead in GA4
@@ -317,6 +346,30 @@ const CompatibilityPage: NextPage = () => {
       | "midrange"
       | "premium") || "midrange";
   const affiliateUrl = buildAffiliateUrl(affiliateVendor, ideaTypeForAffiliate);
+
+  const confidence: Confidence = deriveConfidenceFromScore(
+    (aiRecommendation as any)?.fitmentConfidence
+  );
+
+  const canShowAffiliateCta =
+    !aiLoading &&
+    !!aiRecommendation &&
+    confidence !== "UNKNOWN" &&
+    typeof window !== "undefined"; // CTA is client-only navigation
+
+  const vendorLabel =
+    affiliateVendor === "tirerack"
+      ? "Tire Rack"
+      : affiliateVendor === "realtruck"
+      ? "RealTruck"
+      : "Amazon";
+
+  const mainCtaLabel =
+    confidence === "VERIFIED"
+      ? `View verified fitment on ${vendorLabel}`
+      : confidence === "CONDITIONAL"
+      ? `View part (check requirements) on ${vendorLabel}`
+      : `Run full compatibility check`;
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -510,9 +563,7 @@ const CompatibilityPage: NextPage = () => {
                 disabled={isSubmitting}
                 className="w-full inline-flex items-center justify-center rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/25 hover:bg-cyan-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {isSubmitting
-                  ? "Submitting your details..."
-                  : "Run compatibility check"}
+                {isSubmitting ? "Submitting your details..." : "Run compatibility check"}
               </button>
 
               {status === "success" && (
@@ -557,13 +608,33 @@ const CompatibilityPage: NextPage = () => {
 
               {!aiLoading && aiRecommendation && (
                 <div className="space-y-4">
+                  {/* Confidence badge + interpretation */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className={confidenceBadgeClasses(confidence)}>
+                        {confidenceLabel(confidence)}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Fitment score:{" "}
+                        <span className="font-semibold text-slate-100">
+                          {aiRecommendation.fitmentConfidence}/100
+                        </span>
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium text-slate-100">
+                      {confidenceInterpretation(confidence)}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Always confirm fitment with the vendor or installer before purchase.
+                    </p>
+                  </div>
+
+                  {/* Existing overview */}
                   <div>
                     <p className="text-xs font-semibold text-slate-300 mb-1">
                       Overview
                     </p>
-                    <p className="text-xs text-slate-300">
-                      {aiRecommendation.overview}
-                    </p>
+                    <p className="text-xs text-slate-300">{aiRecommendation.overview}</p>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 text-[11px]">
@@ -604,29 +675,38 @@ const CompatibilityPage: NextPage = () => {
                     </p>
                   </div>
 
-                  {/* Main affiliate CTA */}
+                  {/* Main affiliate CTA (gated by confidence) */}
                   <div className="pt-3 border-t border-slate-800">
                     <button
                       type="button"
+                      disabled={!canShowAffiliateCta}
                       onClick={() => {
+                        if (!canShowAffiliateCta) return;
                         handleAffiliateClick(
                           ideaTypeForAffiliate,
                           affiliateVendor,
-                          affiliatePriceBand
+                          affiliatePriceBand,
+                          confidence
                         );
                         if (typeof window !== "undefined") {
                           window.location.href = affiliateUrl;
                         }
                       }}
-                      className="w-full rounded-lg bg-cyan-500 text-slate-950 text-xs font-semibold py-2 mt-1 hover:bg-cyan-400 transition"
+                      className={
+                        "w-full rounded-lg text-xs font-semibold py-2 mt-1 transition " +
+                        (canShowAffiliateCta
+                          ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+                          : "bg-slate-800 text-slate-400 cursor-not-allowed")
+                      }
                     >
-                      View this upgrade on{" "}
-                      {affiliateVendor === "tirerack"
-                        ? "Tire Rack"
-                        : affiliateVendor === "realtruck"
-                        ? "RealTruck"
-                        : "Amazon"}
+                      {confidence === "UNKNOWN" ? "Fitment not verified yet" : mainCtaLabel}
                     </button>
+
+                    {confidence === "UNKNOWN" && (
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        Submit details and improve confidence before shopping. We gate outbound links when fitment is unknown.
+                      </p>
+                    )}
                   </div>
 
                   {aiRecommendation.potentialIssues?.length ? (
@@ -647,68 +727,94 @@ const CompatibilityPage: NextPage = () => {
                       <p className="text-xs font-semibold text-slate-300 mb-1">
                         Suggested upgrade direction
                       </p>
-                      {aiRecommendation.recommendedUpgradeIdeas.map(
-                        (idea, idx) => {
-                          const vendor = chooseVendor(idea.type || "");
-                          const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
-                          const href = buildAffiliateUrl(
-                            vendor,
-                            keywords || form.upgrade || "auto upgrade"
-                          );
-                          const priceBand =
-                            (idea.priceBand as
-                              | "budget"
-                              | "midrange"
-                              | "premium") || "midrange";
+                      {aiRecommendation.recommendedUpgradeIdeas.map((idea, idx) => {
+                        const vendor = chooseVendor(idea.type || "");
+                        const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
+                        const href = buildAffiliateUrl(
+                          vendor,
+                          keywords || form.upgrade || "auto upgrade"
+                        );
+                        const priceBand =
+                          (idea.priceBand as "budget" | "midrange" | "premium") ||
+                          "midrange";
 
-                          return (
-                            <div
-                              key={idx}
-                              className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 mb-2"
-                            >
+                        const ideaConfidence: Confidence = deriveConfidenceFromScore(
+                          (aiRecommendation as any)?.fitmentConfidence
+                        );
+
+                        const ideaCtaLabel =
+                          ideaConfidence === "VERIFIED"
+                            ? "Shop verified direction"
+                            : ideaConfidence === "CONDITIONAL"
+                            ? "Shop direction (check requirements)"
+                            : "Fitment unknown";
+
+                        return (
+                          <div
+                            key={idx}
+                            className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 mb-2"
+                          >
+                            <div className="flex items-center justify-between gap-3">
                               <p className="text-xs font-semibold text-slate-100">
                                 {idea.name}
                               </p>
-                              <p className="text-[11px] text-slate-400 mb-1">
-                                {idea.summary}
-                              </p>
-                              <p className="text-[11px] text-slate-500">
-                                Price band:{" "}
-                                <span className="text-slate-200">
-                                  {idea.priceBand}
-                                </span>
-                              </p>
-                              <p className="text-[11px] text-slate-500">
-                                Example approach:{" "}
-                                <span className="text-slate-200">
-                                  {idea.examplePartHint}
-                                </span>
-                              </p>
-
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={() =>
-                                  handleAffiliateClick(
-                                    idea.type || idea.name,
-                                    vendor,
-                                    priceBand
-                                  )
-                                }
-                                className="mt-2 inline-flex items-center rounded-md border border-cyan-400/70 px-3 py-1.5 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/10 transition-colors"
-                              >
-                                {vendor === "amazon" &&
-                                  "Shop this direction on Amazon"}
-                                {vendor === "tirerack" &&
-                                  "Shop this direction on Tire Rack"}
-                                {vendor === "realtruck" &&
-                                  "Shop this direction on RealTruck"}
-                              </a>
+                              <span className={confidenceBadgeClasses(ideaConfidence)}>
+                                {confidenceLabel(ideaConfidence)}
+                              </span>
                             </div>
-                          );
-                        }
-                      )}
+
+                            <p className="text-[11px] text-slate-400 mb-1">
+                              {idea.summary}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              Price band:{" "}
+                              <span className="text-slate-200">{idea.priceBand}</span>
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              Example approach:{" "}
+                              <span className="text-slate-200">
+                                {idea.examplePartHint}
+                              </span>
+                            </p>
+
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => {
+                                if (ideaConfidence === "UNKNOWN") {
+                                  e.preventDefault();
+                                  return;
+                                }
+                                handleAffiliateClick(
+                                  idea.type || idea.name,
+                                  vendor,
+                                  priceBand,
+                                  ideaConfidence
+                                );
+                              }}
+                              className={
+                                "mt-2 inline-flex items-center rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors " +
+                                (ideaConfidence === "UNKNOWN"
+                                  ? "border border-slate-700 text-slate-500 cursor-not-allowed"
+                                  : "border border-cyan-400/70 text-cyan-300 hover:bg-cyan-400/10")
+                              }
+                            >
+                              {ideaConfidence === "UNKNOWN"
+                                ? "Fitment not verified yet"
+                                : vendor === "amazon"
+                                ? `${ideaCtaLabel} on Amazon`
+                                : vendor === "tirerack"
+                                ? `${ideaCtaLabel} on Tire Rack`
+                                : `${ideaCtaLabel} on RealTruck`}
+                            </a>
+
+                            <p className="mt-2 text-[11px] text-slate-500">
+                              Always confirm fitment with the vendor or installer before purchase.
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
 

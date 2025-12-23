@@ -3,20 +3,53 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { findPartFitment } from "../../../lib/partsFitment";
 
+// ---------- Confidence (single source of truth in this file) ----------
+type Confidence = "VERIFIED" | "CONDITIONAL" | "UNKNOWN";
+
+function computeConfidence(status: string, summary?: string | null): Confidence {
+  if (status !== "FOUND") return "UNKNOWN";
+
+  const s = (summary || "").toLowerCase();
+  const conditionalSignals = [
+    "lift",
+    "trimming",
+    "trim",
+    "cut",
+    "clearance",
+    "requires",
+    "may require",
+    "minor modification",
+    "rub",
+  ];
+
+  return conditionalSignals.some((w) => s.includes(w)) ? "CONDITIONAL" : "VERIFIED";
+}
+
+// (Optional) not currently used by API responses, but safe to keep for UI mapping later.
+function confidenceLabel(c: Confidence) {
+  return c === "VERIFIED" ? "Verified" : c === "CONDITIONAL" ? "Conditional" : "Unknown";
+}
+
+// ---------- Response types ----------
+type SuccessStatus = "FOUND" | "NO_VEHICLE_MATCH";
+type ErrorStatus = "INVALID_INPUT" | "PART_NOT_FOUND";
+
 type SuccessResponse = {
   ok: true;
   summary: string;
   affiliateUrl: string | null;
   vendor: string | null;
-  status: "FOUND" | "NO_VEHICLE_MATCH";
+  status: SuccessStatus;
+  confidence: Confidence;
 };
 
 type ErrorResponse = {
   ok: false;
   error: string;
-  status?: "INVALID_INPUT" | "PART_NOT_FOUND";
+  status: ErrorStatus;
 };
 
+// ---------- Affiliate URL hardening ----------
 function isPlaceholderUrl(url: string) {
   const u = url.toLowerCase();
   return (
@@ -36,7 +69,6 @@ function isPlaceholderUrl(url: string) {
  */
 function finalizeAffiliateUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-
   if (isPlaceholderUrl(url)) return null;
 
   // Require http(s) URL
@@ -45,14 +77,17 @@ function finalizeAffiliateUrl(url: string | null | undefined): string | null {
   return url;
 }
 
+// ---------- Handler ----------
 export default function handler(
   req: NextApiRequest,
   res: NextApiResponse<SuccessResponse | ErrorResponse>
 ) {
   if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ ok: false, error: "Method not allowed. Use POST." });
+    return res.status(405).json({
+      ok: false,
+      status: "INVALID_INPUT",
+      error: "Method not allowed. Use POST.",
+    });
   }
 
   const { year, make, model, trim, partNumber } = req.body || {};
@@ -93,9 +128,12 @@ export default function handler(
   if (result.status === "NO_VEHICLE_MATCH") {
     // Recognized part record, but no verified rule coverage for that vehicle.
     // Keep CTA gated off for now.
+    const confidence = computeConfidence(result.status, result.summary);
+
     return res.status(200).json({
       ok: true,
       status: "NO_VEHICLE_MATCH",
+      confidence,
       summary: result.summary,
       affiliateUrl: null,
       vendor: null,
@@ -103,9 +141,12 @@ export default function handler(
   }
 
   // FOUND
+  const confidence = computeConfidence(result.status, result.summary);
+
   return res.status(200).json({
     ok: true,
     status: "FOUND",
+    confidence,
     summary: result.summary,
     affiliateUrl: finalizeAffiliateUrl(result.affiliateUrl),
     vendor: result.vendor || null,
