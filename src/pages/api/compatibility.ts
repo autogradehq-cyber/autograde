@@ -3,14 +3,23 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import sgMail from "@sendgrid/mail";
 
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@autogradehq.com";
+
+// IMPORTANT:
+// SENDGRID_FROM_EMAIL must be a VERIFIED sender in SendGrid (Single Sender or Domain Auth).
+const FROM_EMAIL =
+  process.env.SENDGRID_FROM_EMAIL || "noreply@autogradehq.com";
+
+// Where YOU want to receive lead notifications (your real inbox)
+const NOTIFY_EMAIL =
+  process.env.SENDGRID_NOTIFY_EMAIL || process.env.SENDGRID_FROM_EMAIL || "";
+
 const SITE_URL = process.env.SITE_URL || "https://autogradehq.com";
 
 if (SENDGRID_KEY) {
   sgMail.setApiKey(SENDGRID_KEY);
 } else {
   console.warn(
-    "[/api/compatibility] Missing SENDGRID_API_KEY; emails will fail until this is configured."
+    "[/api/compatibility] Missing SENDGRID_API_KEY; emails will fail until configured."
   );
 }
 
@@ -48,11 +57,27 @@ const buildAffiliateUrl = (vendor: AffiliateVendor, keywords: string): string =>
   return `${SITE_URL}/api/out?${params.toString()}`;
 };
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Minimal HTML escaping to prevent broken markup or injection
+function escapeHtml(input: unknown) {
+  const s = String(input ?? "");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<SuccessResponse | ErrorResponse>
 ) {
   if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
@@ -80,13 +105,18 @@ export default async function handler(
     });
   }
 
-  const vehicleLine = `${year} ${make} ${model}${
-    trim ? ` ${trim}` : ""
-  }`.trim();
+  if (!isValidEmail(String(email))) {
+    return res.status(400).json({
+      ok: false,
+      error: "Please enter a valid email address.",
+    });
+  }
+
+  const vehicleLine = `${year} ${make} ${model}${trim ? ` ${trim}` : ""}`.trim();
 
   if (!SENDGRID_KEY) {
     console.error(
-      "[/api/compatibility] SENDGRID_API_KEY is not configured; cannot send email."
+      "[/api/compatibility] SENDGRID_API_KEY not configured; cannot send email."
     );
     return res.status(500).json({
       ok: false,
@@ -97,7 +127,7 @@ export default async function handler(
 
   // Build affiliate link
   const keywords = `${year} ${make} ${model} ${upgrade}`.trim();
-  const vendor = chooseVendor(upgrade);
+  const vendor = chooseVendor(String(upgrade));
   const affiliateUrl = buildAffiliateUrl(vendor, keywords);
 
   const vendorLabel =
@@ -115,35 +145,43 @@ export default async function handler(
     `• Vehicle: ${vehicleLine}`,
     `• Upgrade: ${upgrade}`,
   ];
+
   if (drivingStyle) textLines.push(`• Driving style: ${drivingStyle}`);
   if (budgetLevel) textLines.push(`• Budget level: ${budgetLevel}`);
   if (topPriority) textLines.push(`• Top priority: ${topPriority}`);
   if (typeof fitmentConfidence !== "undefined")
     textLines.push(`• Fitment confidence: ${fitmentConfidence}`);
-  if (typeof valueScore !== "undefined")
-    textLines.push(`• Value score: ${valueScore}`);
+  if (typeof valueScore !== "undefined") textLines.push(`• Value score: ${valueScore}`);
 
   if (recommendationSummary) {
-    textLines.push("", "AutoGrade recommendation:", recommendationSummary);
+    textLines.push("", "AutoGrade recommendation:", String(recommendationSummary));
   }
   if (notes) {
-    textLines.push("", "Additional notes:", notes);
+    textLines.push("", "Additional notes:", String(notes));
   }
 
   textLines.push(
     "",
     `View matching parts on ${vendorLabel}: ${affiliateUrl}`,
     "",
-    `You can always run another check at ${SITE_URL}/compatibility`
+    `Run another check: ${SITE_URL}/compatibility`
   );
 
   const textBody = textLines.join("\n");
 
-  // ---------- HTML VERSION (branded template) ----------
-  const hasScores =
-    typeof fitmentConfidence !== "undefined" ||
-    typeof valueScore !== "undefined";
+  // Escape dynamic values for HTML
+  const vehicleLineHtml = escapeHtml(vehicleLine);
+  const upgradeHtml = escapeHtml(upgrade);
+  const drivingStyleHtml = escapeHtml(drivingStyle);
+  const budgetLevelHtml = escapeHtml(budgetLevel);
+  const topPriorityHtml = escapeHtml(topPriority);
+  const recommendationSummaryHtml = escapeHtml(recommendationSummary);
+  const notesHtml = escapeHtml(notes).replace(/\n/g, "<br/>");
 
+  const hasScores =
+    typeof fitmentConfidence !== "undefined" || typeof valueScore !== "undefined";
+
+  // ---------- HTML VERSION ----------
   const htmlBody = `
   <div style="background-color:#020617; padding:24px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
@@ -152,7 +190,6 @@ export default async function handler(
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px; background-color:#020617; border-radius:18px; border:1px solid #0f172a;">
             <tr>
               <td style="padding:20px 20px 8px 20px;">
-                <!-- Header / mini logo row -->
                 <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
                   <tr>
                     <td>
@@ -189,34 +226,21 @@ export default async function handler(
                 </h1>
                 <p style="margin:0 0 16px 0; font-size:13px; color:#cbd5f5; line-height:1.5;">
                   Thanks for checking your vehicle on <strong style="color:#f9fafb;">AutoGradeHQ</strong>.
-                  Here’s a summary you can keep and refer back to any time before you buy.
+                  Here’s a summary you can keep before you buy.
                 </p>
               </td>
             </tr>
 
-            <!-- Vehicle block -->
             <tr>
               <td style="padding:0 20px 4px 20px;">
                 <div style="border-radius:14px; border:1px solid #1f2937; background:#020617; padding:14px 16px;">
                   <h2 style="font-size:13px; margin:0 0 6px 0; color:#e5e7eb;">Vehicle & upgrade</h2>
                   <ul style="margin:0; padding-left:18px; font-size:13px; color:#e5e7eb; line-height:1.5;">
-                    <li><strong>Vehicle:</strong> ${vehicleLine}</li>
-                    <li><strong>Upgrade:</strong> ${upgrade}</li>
-                    ${
-                      drivingStyle
-                        ? `<li><strong>Driving style:</strong> ${drivingStyle}</li>`
-                        : ""
-                    }
-                    ${
-                      budgetLevel
-                        ? `<li><strong>Budget level:</strong> ${budgetLevel}</li>`
-                        : ""
-                    }
-                    ${
-                      topPriority
-                        ? `<li><strong>Top priority:</strong> ${topPriority}</li>`
-                        : ""
-                    }
+                    <li><strong>Vehicle:</strong> ${vehicleLineHtml}</li>
+                    <li><strong>Upgrade:</strong> ${upgradeHtml}</li>
+                    ${drivingStyle ? `<li><strong>Driving style:</strong> ${drivingStyleHtml}</li>` : ""}
+                    ${budgetLevel ? `<li><strong>Budget level:</strong> ${budgetLevelHtml}</li>` : ""}
+                    ${topPriority ? `<li><strong>Top priority:</strong> ${topPriorityHtml}</li>` : ""}
                   </ul>
                 </div>
               </td>
@@ -225,7 +249,6 @@ export default async function handler(
             ${
               hasScores
                 ? `
-            <!-- Score cards row -->
             <tr>
               <td style="padding:8px 20px 0 20px;">
                 <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
@@ -237,7 +260,7 @@ export default async function handler(
                       <div style="border-radius:12px; border:1px solid #1f2937; background:#020617; padding:10px 12px;">
                         <div style="font-size:11px; color:#9ca3af; margin-bottom:2px;">Fitment confidence</div>
                         <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
-                          ${fitmentConfidence}/100
+                          ${escapeHtml(fitmentConfidence)}/100
                         </div>
                       </div>
                     </td>
@@ -251,7 +274,7 @@ export default async function handler(
                       <div style="border-radius:12px; border:1px solid #1f2937; background:#020617; padding:10px 12px;">
                         <div style="font-size:11px; color:#9ca3af; margin-bottom:2px;">Value score</div>
                         <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
-                          ${valueScore}/100
+                          ${escapeHtml(valueScore)}/100
                         </div>
                       </div>
                     </td>
@@ -266,7 +289,6 @@ export default async function handler(
                 : ""
             }
 
-            <!-- Recommendation -->
             ${
               recommendationSummary
                 ? `
@@ -274,7 +296,7 @@ export default async function handler(
               <td style="padding:14px 20px 4px 20px;">
                 <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">AutoGrade recommendation</h2>
                 <p style="margin:0 0 10px 0; font-size:13px; color:#cbd5f5; line-height:1.6;">
-                  ${recommendationSummary}
+                  ${recommendationSummaryHtml}
                 </p>
               </td>
             </tr>
@@ -282,15 +304,14 @@ export default async function handler(
                 : ""
             }
 
-            <!-- Additional notes -->
             ${
               notes
                 ? `
             <tr>
               <td style="padding:4px 20px 10px 20px;">
                 <h2 style="font-size:13px; margin:0 0 4px 0; color:#e5e7eb;">Additional notes</h2>
-                <p style="margin:0; font-size:13px; color:#9ca3af; line-height:1.6; white-space:pre-line;">
-                  ${notes}
+                <p style="margin:0; font-size:13px; color:#9ca3af; line-height:1.6;">
+                  ${notesHtml}
                 </p>
               </td>
             </tr>
@@ -298,7 +319,6 @@ export default async function handler(
                 : ""
             }
 
-            <!-- CTA button -->
             <tr>
               <td style="padding:12px 20px 4px 20px;">
                 <table role="presentation" cellspacing="0" cellpadding="0">
@@ -317,16 +337,11 @@ export default async function handler(
               </td>
             </tr>
 
-            <!-- Footer -->
             <tr>
               <td style="padding:14px 20px 18px 20px;">
                 <p style="margin:0 0 4px 0; font-size:11px; color:#64748b; line-height:1.5;">
-                  Keep this email so you can reference it before you place an order.
-                  You can always run another check or start a fresh upgrade plan at
+                  Run another check at
                   <a href="${SITE_URL}/compatibility" style="color:#22c4ff; text-decoration:none;">autogradehq.com/compatibility</a>.
-                </p>
-                <p style="margin:6px 0 0 0; font-size:10px; color:#475569;">
-                  You’re receiving this because you requested an upgrade compatibility breakdown on AutoGradeHQ.
                 </p>
               </td>
             </tr>
@@ -339,21 +354,23 @@ export default async function handler(
   `;
 
   try {
-    // Customer email
+    // 1) Customer email (required)
     await sgMail.send({
-      to: email,
+      to: String(email),
       from: FROM_EMAIL,
+      replyTo: NOTIFY_EMAIL || FROM_EMAIL,
       subject: `Your AutoGradeHQ compatibility breakdown – ${vehicleLine}`,
       text: textBody,
       html: htmlBody,
     });
 
-    // Internal notification for you
-    await sgMail.send({
-      to: FROM_EMAIL,
-      from: FROM_EMAIL,
-      subject: "New AutoGradeHQ compatibility lead",
-      text: `New compatibility check request:
+    // 2) Internal notification (optional; only if NOTIFY_EMAIL is set & valid)
+    if (NOTIFY_EMAIL && isValidEmail(NOTIFY_EMAIL)) {
+      await sgMail.send({
+        to: NOTIFY_EMAIL,
+        from: FROM_EMAIL,
+        subject: "New AutoGradeHQ compatibility lead",
+        text: `New compatibility check request:
 
 Vehicle: ${vehicleLine}
 Upgrade: ${upgrade}
@@ -363,8 +380,8 @@ Budget level: ${budgetLevel || "n/a"}
 Top priority: ${topPriority || "n/a"}
 
 Fitment confidence: ${
-        typeof fitmentConfidence !== "undefined" ? fitmentConfidence : "n/a"
-      }
+          typeof fitmentConfidence !== "undefined" ? fitmentConfidence : "n/a"
+        }
 Value score: ${typeof valueScore !== "undefined" ? valueScore : "n/a"}
 
 Recommendation summary:
@@ -376,11 +393,22 @@ ${notes || "n/a"}
 Affiliate vendor: ${vendorLabel}
 Affiliate URL: ${affiliateUrl}
 `,
-    });
+      });
+    } else {
+      console.warn(
+        "[/api/compatibility] SENDGRID_NOTIFY_EMAIL not set/valid; skipping internal notification."
+      );
+    }
 
     return res.status(200).json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
+    // SendGrid errors often contain a response body with details
+    const sgDetails =
+      err?.response?.body?.errors ? JSON.stringify(err.response.body.errors) : "";
+
     console.error("[/api/compatibility] Error sending email:", err);
+    if (sgDetails) console.error("[/api/compatibility] SendGrid details:", sgDetails);
+
     return res.status(500).json({
       ok: false,
       error:
