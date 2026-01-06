@@ -11,7 +11,7 @@ const Logo: React.FC<LogoProps> = ({ compact = false }) => {
     <Link href="/" className="flex items-center gap-2 group">
       <div className="relative h-8 w-8 sm:h-9 sm:w-9">
         <Image
-          src="/autograde-logo.svg" // <-- update if your file is named differently
+          src="/autograde-logo.png" // <-- update if your file is named differently
           alt="AutoGradeHQ logo"
           fill
           className="object-contain"
