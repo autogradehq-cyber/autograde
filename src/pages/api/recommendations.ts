@@ -32,14 +32,42 @@ type ApiResponse =
   | { ok: true; recommendation: UpgradeRecommendation }
   | { ok: false; error: string };
 
+function pickFirst(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] : v;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  // Always declare allowed methods (also helpful for debugging)
+  res.setHeader("Allow", ["POST", "GET", "OPTIONS"]);
+
+  // Handle preflight cleanly (can happen depending on browser/request headers)
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  // Accept POST (intended) and GET (failsafe)
+  if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  // Pull inputs from body (POST) or query (GET)
+  const input =
+    req.method === "POST"
+      ? (req.body ?? {})
+      : {
+          year: pickFirst(req.query.year as any),
+          make: pickFirst(req.query.make as any),
+          model: pickFirst(req.query.model as any),
+          trim: pickFirst(req.query.trim as any),
+          upgradeType: pickFirst(req.query.upgradeType as any),
+          drivingStyle: pickFirst(req.query.drivingStyle as any),
+          budgetLevel: pickFirst(req.query.budgetLevel as any),
+          priorities: pickFirst(req.query.priorities as any),
+          email: pickFirst(req.query.email as any),
+        };
 
   const {
     year,
@@ -51,7 +79,7 @@ export default async function handler(
     budgetLevel,
     priorities,
     email,
-  } = req.body || {};
+  } = input || {};
 
   if (!year || !make || !model || !upgradeType) {
     return res.status(400).json({
@@ -60,10 +88,16 @@ export default async function handler(
     });
   }
 
+  // Hard fail early if key missing (prevents confusing downstream errors)
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({
+      ok: false,
+      error: "Server misconfiguration: OPENAI_API_KEY is missing.",
+    });
+  }
+
   try {
-    const vehicleString = `${year} ${make} ${model}${
-      trim ? " " + trim : ""
-    }`.trim();
+    const vehicleString = `${year} ${make} ${model}${trim ? " " + trim : ""}`.trim();
 
     const userBudget =
       typeof budgetLevel === "string" && budgetLevel.length
@@ -177,10 +211,7 @@ export default async function handler(
       rec.riskLevel = "medium";
     }
 
-    if (
-      !rec.priceBand ||
-      !["budget", "midrange", "premium"].includes(rec.priceBand)
-    ) {
+    if (!rec.priceBand || !["budget", "midrange", "premium"].includes(rec.priceBand)) {
       rec.priceBand = defaultPriceBand;
     }
 
@@ -199,8 +230,7 @@ export default async function handler(
             idea.summary ||
             "High-level upgrade direction based on your vehicle and goals.",
           priceBand:
-            ["budget", "midrange", "premium"].includes(idea.priceBand) &&
-            idea.priceBand
+            ["budget", "midrange", "premium"].includes(idea.priceBand) && idea.priceBand
               ? idea.priceBand
               : defaultPriceBand,
           examplePartHint:
