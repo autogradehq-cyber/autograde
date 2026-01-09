@@ -23,10 +23,8 @@ type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 const chooseVendor = (ideaType: string): AffiliateVendor => {
   const t = (ideaType || "").toLowerCase();
 
-  // Tires / wheels → Tire Rack
   if (t.includes("tire") || t.includes("wheel")) return "tirerack";
 
-  // Truck accessories → RealTruck (once Sovrn approves)
   if (
     t.includes("tonneau") ||
     t.includes("bed cover") ||
@@ -37,12 +35,10 @@ const chooseVendor = (ideaType: string): AffiliateVendor => {
     return "realtruck";
   }
 
-  // Lifts / suspension / shocks → Amazon
   if (t.includes("lift") || t.includes("suspension") || t.includes("shock")) {
     return "amazon";
   }
 
-  // Default fallback
   return "amazon";
 };
 
@@ -60,7 +56,7 @@ type FormState = {
   model: string;
   trim: string;
   upgrade: string;
-  email: string;
+  email: string; // OPTIONAL now
   drivingStyle: string;
   budgetLevel: string;
   priorities: string;
@@ -83,7 +79,7 @@ const estimateValueFromPriceBand = (
 ) => {
   switch (priceBand) {
     case "budget":
-      return 150; // rough average cart
+      return 150;
     case "midrange":
       return 500;
     case "premium":
@@ -93,13 +89,9 @@ const estimateValueFromPriceBand = (
   }
 };
 
-// ---- Confidence helpers (conversion psychology + gating) ----
+// ---- Confidence helpers ----
 type Confidence = "VERIFIED" | "CONDITIONAL" | "UNKNOWN";
 
-/**
- * Map the AI numeric fitmentConfidence (0–100) to your badge taxonomy.
- * This is intentionally conservative; adjust thresholds later once you have data.
- */
 const deriveConfidenceFromScore = (score: number | null | undefined): Confidence => {
   if (typeof score !== "number" || Number.isNaN(score)) return "UNKNOWN";
   if (score >= 80) return "VERIFIED";
@@ -123,7 +115,7 @@ const confidenceInterpretation = (c: Confidence) =>
     ? "Verified fitment confidence for this upgrade direction based on the info provided."
     : c === "CONDITIONAL"
     ? "Likely fit, but verify requirements (clearance, trimming, lift/offset, alignment) before purchase."
-    : "Unknown fitment confidence—run a full compatibility check and verify before purchasing.";
+    : "Unknown fitment confidence—use caution and verify before purchasing.";
 
 const CompatibilityPage: NextPage = () => {
   const [form, setForm] = useState<FormState>(initialForm);
@@ -157,7 +149,7 @@ const CompatibilityPage: NextPage = () => {
       vehicle_trim: form.trim,
       vendor,
       price_band: priceBand,
-      confidence, // NEW: confidence parameter for analysis
+      confidence,
       affiliate_value: estimatedValue,
       value: estimatedValue,
       currency: "USD",
@@ -182,13 +174,13 @@ const CompatibilityPage: NextPage = () => {
       priorities,
     } = form;
 
-    if (!year || !make || !model || !upgrade || !email) {
+    // Email is OPTIONAL now
+    if (!year || !make || !model || !upgrade) {
       setStatus("error");
-      setMessage("Please fill in year, make, model, upgrade, and email.");
+      setMessage("Please fill in year, make, model, and the upgrade you’re considering.");
       return;
     }
 
-    // Track form_start in GA4
     trackEvent("form_start", {
       form_type: "compatibility",
       upgrade_type: upgrade,
@@ -204,7 +196,7 @@ const CompatibilityPage: NextPage = () => {
     let recommendation: UpgradeRecommendation | null = null;
 
     try {
-      // 1) Get AI recommendation first so we can email the same breakdown
+      // 1) Get AI recommendation so we can show it immediately (and optionally email it)
       try {
         const aiRes = await fetch("/api/recommendations", {
           method: "POST",
@@ -218,80 +210,42 @@ const CompatibilityPage: NextPage = () => {
             drivingStyle,
             budgetLevel,
             priorities,
-            email,
+            email, // included for context only
           }),
         });
 
-        if (aiRes.ok) {
-          const data = (await aiRes.json()) as {
-            ok: boolean;
-            recommendation?: UpgradeRecommendation;
-          };
+        const aiData = await aiRes.json().catch(() => null);
 
-          if (data.ok && data.recommendation) {
-            recommendation = data.recommendation;
-            setAiRecommendation(data.recommendation);
-          } else {
-            console.warn(
-              "[compatibility] AI response did not include recommendation"
-            );
-          }
+        if (aiRes.ok && aiData?.ok && aiData?.recommendation) {
+          recommendation = aiData.recommendation as UpgradeRecommendation;
+          setAiRecommendation(recommendation);
         } else {
-          console.warn(
-            "[compatibility] AI request failed with status",
-            aiRes.status
-          );
+          console.warn("[compatibility] AI response missing recommendation", aiRes.status, aiData);
         }
       } catch (err) {
-        console.error(
-          "[compatibility] Error calling AI recommendation API:",
-          err
-        );
+        console.error("[compatibility] Error calling AI recommendation API:", err);
       } finally {
         setAiLoading(false);
       }
 
-      // 2) Build payload for compatibility email, including score card info
-      const payload: any = {
+      // 2) Send compatibility payload (email optional) and include full recommendation for email/options
+      const compatPayload: any = {
         year,
         make,
         model,
         trim,
         upgrade,
-        email,
+        email: email || "", // optional
         drivingStyle,
         budgetLevel,
         topPriority: priorities,
+        recommendation: recommendation ?? null, // <-- NEW
       };
 
-      if (recommendation) {
-        // Numbers like 0–100 are fine to send directly
-        payload.fitmentConfidence = recommendation.fitmentConfidence;
-        payload.valueScore = recommendation.valueScore;
-
-        // Short explanation or overview as the main summary
-        payload.recommendationSummary =
-          recommendation.shortExplanation || recommendation.overview;
-
-        const decisionText =
-          (recommendation as any).decisionSummary ||
-          (recommendation as any).decision ||
-          "";
-
-        const potentialIssuesText = recommendation.potentialIssues?.length
-          ? `Potential issues: ${recommendation.potentialIssues.join("; ")}`
-          : "";
-
-        payload.notes = [decisionText, potentialIssuesText]
-          .filter(Boolean)
-          .join("\n\n");
-      }
-
-      // 3) Compatibility API (email + lead)
       const compatRes = await fetch("/api/compatibility", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(compatPayload),
       });
 
       const compatData = await compatRes.json().catch(() => null);
@@ -300,7 +254,6 @@ const CompatibilityPage: NextPage = () => {
         throw new Error(compatData?.error || "Compatibility request failed.");
       }
 
-      // Track generate_lead in GA4
       trackEvent("generate_lead", {
         form_type: "compatibility",
         upgrade_type: upgrade,
@@ -312,50 +265,38 @@ const CompatibilityPage: NextPage = () => {
 
       setStatus("success");
       setMessage(
-        "Got it! We’ve received your info and emailed you a breakdown for this upgrade."
+        email
+          ? "Done. Your results are shown below, and a copy was emailed to you."
+          : "Done. Your results are shown below. Add an email if you want a copy."
       );
 
-      // Reset key fields (but keep prefs)
-      setForm((prev) => ({
-        ...prev,
-        year: "",
-        make: "",
-        model: "",
-        trim: "",
-        upgrade: "",
-        email: "",
-      }));
+      // IMPORTANT: do not clear the form automatically (keeps keywords + makes funnel faster)
     } catch (err) {
       console.error("[compatibility] Error submitting form:", err);
       setStatus("error");
-      setMessage(
-        "Something went wrong submitting your request. Please try again in a moment."
-      );
+      setMessage("Something went wrong submitting your request. Please try again in a moment.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   // Derived values for affiliate CTA
+  const vehicleString = `${form.year} ${form.make} ${form.model} ${form.trim || ""}`.trim();
   const ideaTypeForAffiliate =
     form.upgrade || aiRecommendation?.overview || "recommended upgrade";
+
   const affiliateVendor = chooseVendor(ideaTypeForAffiliate);
   const affiliatePriceBand =
-    ((aiRecommendation as any)?.priceBand as
-      | "budget"
-      | "midrange"
-      | "premium") || "midrange";
-  const affiliateUrl = buildAffiliateUrl(affiliateVendor, ideaTypeForAffiliate);
+    ((aiRecommendation as any)?.priceBand as "budget" | "midrange" | "premium") || "midrange";
+
+  const affiliateUrl = buildAffiliateUrl(affiliateVendor, `${vehicleString} ${ideaTypeForAffiliate}`.trim());
 
   const confidence: Confidence = deriveConfidenceFromScore(
     (aiRecommendation as any)?.fitmentConfidence
   );
 
-  const canShowAffiliateCta =
-    !aiLoading &&
-    !!aiRecommendation &&
-    confidence !== "UNKNOWN" &&
-    typeof window !== "undefined"; // CTA is client-only navigation
+  // Conversion-first: allow CTA as long as we have a recommendation
+  const canShowAffiliateCta = !aiLoading && !!aiRecommendation;
 
   const vendorLabel =
     affiliateVendor === "tirerack"
@@ -366,10 +307,10 @@ const CompatibilityPage: NextPage = () => {
 
   const mainCtaLabel =
     confidence === "VERIFIED"
-      ? `View verified fitment on ${vendorLabel}`
+      ? `View options on ${vendorLabel}`
       : confidence === "CONDITIONAL"
-      ? `View part (check requirements) on ${vendorLabel}`
-      : `Run full compatibility check`;
+      ? `View options (verify fitment) on ${vendorLabel}`
+      : `View options (verify fitment) on ${vendorLabel}`;
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -383,8 +324,8 @@ const CompatibilityPage: NextPage = () => {
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-2xl">
             Tell us about your vehicle and the upgrade you&apos;re considering.
-            We&apos;ll email you a breakdown and generate an AutoGrade
-            recommendation based on fitment, value, and real-world use.
+            We&apos;ll generate an AutoGrade recommendation you can act on immediately.
+            Email is optional if you want a copy.
           </p>
         </header>
 
@@ -394,10 +335,7 @@ const CompatibilityPage: NextPage = () => {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label
-                    htmlFor="year"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="year" className="block text-xs font-medium text-slate-300 mb-1">
                     Year*
                   </label>
                   <input
@@ -412,10 +350,7 @@ const CompatibilityPage: NextPage = () => {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="make"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="make" className="block text-xs font-medium text-slate-300 mb-1">
                     Make*
                   </label>
                   <input
@@ -430,10 +365,7 @@ const CompatibilityPage: NextPage = () => {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="model"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="model" className="block text-xs font-medium text-slate-300 mb-1">
                     Model*
                   </label>
                   <input
@@ -448,10 +380,7 @@ const CompatibilityPage: NextPage = () => {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="trim"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="trim" className="block text-xs font-medium text-slate-300 mb-1">
                     Trim (optional)
                   </label>
                   <input
@@ -467,10 +396,7 @@ const CompatibilityPage: NextPage = () => {
               </div>
 
               <div>
-                <label
-                  htmlFor="upgrade"
-                  className="block text-xs font-medium text-slate-300 mb-1"
-                >
+                <label htmlFor="upgrade" className="block text-xs font-medium text-slate-300 mb-1">
                   What upgrade are you considering?*
                 </label>
                 <input
@@ -486,10 +412,7 @@ const CompatibilityPage: NextPage = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label
-                    htmlFor="drivingStyle"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="drivingStyle" className="block text-xs font-medium text-slate-300 mb-1">
                     Driving style (optional)
                   </label>
                   <input
@@ -504,10 +427,7 @@ const CompatibilityPage: NextPage = () => {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="budgetLevel"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="budgetLevel" className="block text-xs font-medium text-slate-300 mb-1">
                     Budget level (optional)
                   </label>
                   <input
@@ -522,10 +442,7 @@ const CompatibilityPage: NextPage = () => {
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="priorities"
-                    className="block text-xs font-medium text-slate-300 mb-1"
-                  >
+                  <label htmlFor="priorities" className="block text-xs font-medium text-slate-300 mb-1">
                     Top priority (optional)
                   </label>
                   <input
@@ -541,11 +458,8 @@ const CompatibilityPage: NextPage = () => {
               </div>
 
               <div>
-                <label
-                  htmlFor="email"
-                  className="block text-xs font-medium text-slate-300 mb-1"
-                >
-                  Email to send your breakdown to*
+                <label htmlFor="email" className="block text-xs font-medium text-slate-300 mb-1">
+                  Email (optional — send me a copy)
                 </label>
                 <input
                   id="email"
@@ -566,16 +480,11 @@ const CompatibilityPage: NextPage = () => {
                 {isSubmitting ? "Submitting your details..." : "Run compatibility check"}
               </button>
 
-              {status === "success" && (
-                <p className="text-xs text-emerald-400">{message}</p>
-              )}
-              {status === "error" && (
-                <p className="text-xs text-red-400">{message}</p>
-              )}
+              {status === "success" && <p className="text-xs text-emerald-400">{message}</p>}
+              {status === "error" && <p className="text-xs text-red-400">{message}</p>}
 
               <p className="text-[11px] text-slate-500">
-                We&apos;ll never sell your data. Your email is only used for
-                sending this upgrade breakdown and optional follow-ups.
+                We&apos;ll never sell your data. Email is optional and only used to send your breakdown.
               </p>
             </form>
           </section>
@@ -587,28 +496,23 @@ const CompatibilityPage: NextPage = () => {
                 AutoGrade recommendation
               </h2>
               <p className="text-xs text-slate-400 mb-3">
-                After you submit the form, we generate an AI-backed
-                recommendation based on fitment confidence, value, and
-                real-world use.
+                Submit details to generate an on-page recommendation and clickable options.
               </p>
 
               {aiLoading && (
                 <p className="text-xs text-cyan-300">
-                  Crunching the numbers for your setup… this usually takes a few
-                  seconds.
+                  Crunching the numbers for your setup… this usually takes a few seconds.
                 </p>
               )}
 
               {!aiLoading && !aiRecommendation && (
                 <p className="text-xs text-slate-500">
-                  Submit your vehicle and upgrade details to see an AutoGrade
-                  score and recommendation here.
+                  Submit your vehicle and upgrade details to see recommendations here.
                 </p>
               )}
 
               {!aiLoading && aiRecommendation && (
                 <div className="space-y-4">
-                  {/* Confidence badge + interpretation */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <span className={confidenceBadgeClasses(confidence)}>
@@ -629,11 +533,8 @@ const CompatibilityPage: NextPage = () => {
                     </p>
                   </div>
 
-                  {/* Existing overview */}
                   <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Overview
-                    </p>
+                    <p className="text-xs font-semibold text-slate-300 mb-1">Overview</p>
                     <p className="text-xs text-slate-300">{aiRecommendation.overview}</p>
                   </div>
 
@@ -658,24 +559,6 @@ const CompatibilityPage: NextPage = () => {
                     </div>
                   </div>
 
-                  <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      Risk &amp; decision
-                    </p>
-                    <p className="text-[11px] text-slate-400 mb-1">
-                      Risk level:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {aiRecommendation.riskLevel}
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-slate-300">
-                      {(aiRecommendation as any).decisionSummary ??
-                        (aiRecommendation as any).decision ??
-                        ""}
-                    </p>
-                  </div>
-
-                  {/* Main affiliate CTA (gated by confidence) */}
                   <div className="pt-3 border-t border-slate-800">
                     <button
                       type="button"
@@ -699,55 +582,26 @@ const CompatibilityPage: NextPage = () => {
                           : "bg-slate-800 text-slate-400 cursor-not-allowed")
                       }
                     >
-                      {confidence === "UNKNOWN" ? "Fitment not verified yet" : mainCtaLabel}
+                      {mainCtaLabel}
                     </button>
 
-                    {confidence === "UNKNOWN" && (
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Submit details and improve confidence before shopping. We gate outbound links when fitment is unknown.
-                      </p>
-                    )}
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Use this as a starting point—verify exact fitment before purchase.
+                    </p>
                   </div>
-
-                  {aiRecommendation.potentialIssues?.length ? (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Potential issues
-                      </p>
-                      <ul className="text-[11px] text-slate-400 list-disc list-inside space-y-1">
-                        {aiRecommendation.potentialIssues.map((issue, idx) => (
-                          <li key={idx}>{issue}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
 
                   {aiRecommendation.recommendedUpgradeIdeas?.length ? (
                     <div>
                       <p className="text-xs font-semibold text-slate-300 mb-1">
-                        Suggested upgrade direction
+                        Suggested options (click to shop)
                       </p>
+
                       {aiRecommendation.recommendedUpgradeIdeas.map((idea, idx) => {
-                        const vendor = chooseVendor(idea.type || "");
-                        const keywords = `${form.year} ${form.make} ${form.model} ${idea.type} ${idea.name}`.trim();
-                        const href = buildAffiliateUrl(
-                          vendor,
-                          keywords || form.upgrade || "auto upgrade"
-                        );
+                        const vendor = chooseVendor(`${idea.type || ""} ${idea.name || ""}`);
+                        const keywords = `${vehicleString} ${idea.type} ${idea.name}`.trim();
+                        const href = buildAffiliateUrl(vendor, keywords || form.upgrade || "auto upgrade");
                         const priceBand =
-                          (idea.priceBand as "budget" | "midrange" | "premium") ||
-                          "midrange";
-
-                        const ideaConfidence: Confidence = deriveConfidenceFromScore(
-                          (aiRecommendation as any)?.fitmentConfidence
-                        );
-
-                        const ideaCtaLabel =
-                          ideaConfidence === "VERIFIED"
-                            ? "Shop verified direction"
-                            : ideaConfidence === "CONDITIONAL"
-                            ? "Shop direction (check requirements)"
-                            : "Fitment unknown";
+                          (idea.priceBand as "budget" | "midrange" | "premium") || "midrange";
 
                         return (
                           <div
@@ -755,58 +609,42 @@ const CompatibilityPage: NextPage = () => {
                             className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 mb-2"
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs font-semibold text-slate-100">
-                                {idea.name}
-                              </p>
-                              <span className={confidenceBadgeClasses(ideaConfidence)}>
-                                {confidenceLabel(ideaConfidence)}
+                              <p className="text-xs font-semibold text-slate-100">{idea.name}</p>
+                              <span className={confidenceBadgeClasses(confidence)}>
+                                {confidenceLabel(confidence)}
                               </span>
                             </div>
 
-                            <p className="text-[11px] text-slate-400 mb-1">
-                              {idea.summary}
-                            </p>
+                            <p className="text-[11px] text-slate-400 mb-1">{idea.summary}</p>
+
                             <p className="text-[11px] text-slate-500">
-                              Price band:{" "}
-                              <span className="text-slate-200">{idea.priceBand}</span>
+                              Price band: <span className="text-slate-200">{idea.priceBand}</span>
                             </p>
+
                             <p className="text-[11px] text-slate-500">
                               Example approach:{" "}
-                              <span className="text-slate-200">
-                                {idea.examplePartHint}
-                              </span>
+                              <span className="text-slate-200">{idea.examplePartHint}</span>
                             </p>
 
                             <a
                               href={href}
                               target="_blank"
                               rel="noreferrer"
-                              onClick={(e) => {
-                                if (ideaConfidence === "UNKNOWN") {
-                                  e.preventDefault();
-                                  return;
-                                }
+                              onClick={() => {
                                 handleAffiliateClick(
                                   idea.type || idea.name,
                                   vendor,
                                   priceBand,
-                                  ideaConfidence
+                                  confidence
                                 );
                               }}
-                              className={
-                                "mt-2 inline-flex items-center rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors " +
-                                (ideaConfidence === "UNKNOWN"
-                                  ? "border border-slate-700 text-slate-500 cursor-not-allowed"
-                                  : "border border-cyan-400/70 text-cyan-300 hover:bg-cyan-400/10")
-                              }
+                              className="mt-2 inline-flex items-center rounded-md px-3 py-1.5 text-[11px] font-semibold border border-cyan-400/70 text-cyan-300 hover:bg-cyan-400/10 transition-colors"
                             >
-                              {ideaConfidence === "UNKNOWN"
-                                ? "Fitment not verified yet"
-                                : vendor === "amazon"
-                                ? `${ideaCtaLabel} on Amazon`
+                              {vendor === "amazon"
+                                ? "View on Amazon"
                                 : vendor === "tirerack"
-                                ? `${ideaCtaLabel} on Tire Rack`
-                                : `${ideaCtaLabel} on RealTruck`}
+                                ? "View on Tire Rack"
+                                : "View on RealTruck"}
                             </a>
 
                             <p className="mt-2 text-[11px] text-slate-500">
@@ -816,15 +654,15 @@ const CompatibilityPage: NextPage = () => {
                         );
                       })}
                     </div>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      No options were generated. Re-submit, or try a more specific upgrade description.
+                    </p>
+                  )}
 
                   <div>
-                    <p className="text-xs font-semibold text-slate-300 mb-1">
-                      In plain language
-                    </p>
-                    <p className="text-xs text-slate-300">
-                      {aiRecommendation.shortExplanation}
-                    </p>
+                    <p className="text-xs font-semibold text-slate-300 mb-1">In plain language</p>
+                    <p className="text-xs text-slate-300">{aiRecommendation.shortExplanation}</p>
                   </div>
                 </div>
               )}
