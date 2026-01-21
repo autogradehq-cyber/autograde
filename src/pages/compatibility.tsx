@@ -243,34 +243,51 @@ const CompatibilityPage: NextPage = () => {
       };
 
       const compatRes = await fetch("/api/compatibility", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(compatPayload),
-      });
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(compatPayload),
+});
+const compatData = await compatRes.json().catch(() => null);
 
-      const compatData = await compatRes.json().catch(() => null);
+// If the API returned ok:true, we can optionally message about email status.
+// If it failed, we STILL do not block showing results.
+if (compatRes.ok && compatData?.ok) {
+  const emailAttempted = !!compatData?.emailAttempted;
+  const emailSent = !!compatData?.emailSent;
 
-      if (!compatRes.ok || !compatData?.ok) {
-        throw new Error(compatData?.error || "Compatibility request failed.");
-      }
+  setStatus("success");
+  setMessage(
+    emailAttempted
+      ? emailSent
+        ? "Results are ready below — and we emailed your breakdown."
+        : "Results are ready below. Email delivery failed, but you can still shop from the recommendations here."
+      : "Results are ready below."
+  );
 
-      trackEvent("generate_lead", {
-        form_type: "compatibility",
-        upgrade_type: upgrade,
-        vehicle_year: year,
-        vehicle_make: make,
-        vehicle_model: model,
-        vehicle_trim: trim,
-      });
+  // Only track a lead when the compatibility endpoint succeeded
+  trackEvent("generate_lead", {
+    form_type: "compatibility",
+    upgrade_type: upgrade,
+    vehicle_year: year,
+    vehicle_make: make,
+    vehicle_model: model,
+    vehicle_trim: trim,
+  });
+} else {
+  // Do NOT throw — keep on-screen results visible from /api/recommendations
+  console.warn("[compatibility] compatibility/email failed:", compatData?.error);
 
-      setStatus("success");
-      setMessage(
-        email
-          ? "Done. Your results are shown below, and a copy was emailed to you."
-          : "Done. Your results are shown below. Add an email if you want a copy."
-      );
+  setStatus("success");
+  setMessage(
+    "Results are ready below. Email delivery is temporarily unavailable, but you can still shop from the recommendations here."
+  );
 
-      // IMPORTANT: do not clear the form automatically (keeps keywords + makes funnel faster)
+  // Optional: you can track a separate event if you want
+  // trackEvent("email_failed", { form_type: "compatibility" });
+} // <-- IMPORTANT: close else block
+
+// IMPORTANT: do not clear the form automatically (keeps keywords + makes funnel faster)
+
     } catch (err) {
       console.error("[compatibility] Error submitting form:", err);
       setStatus("error");
@@ -298,12 +315,13 @@ const CompatibilityPage: NextPage = () => {
   // Conversion-first: allow CTA as long as we have a recommendation
   const canShowAffiliateCta = !aiLoading && !!aiRecommendation;
 
-  const vendorLabel =
-    affiliateVendor === "tirerack"
-      ? "Tire Rack"
-      : affiliateVendor === "realtruck"
-      ? "RealTruck"
-      : "Amazon";
+ const vendorLabel =
+  affiliateVendor === "tirerack"
+    ? "Tire Rack"
+    : affiliateVendor === "realtruck"
+    ? "RealTruck"
+    : "Amazon";
+
 
   const mainCtaLabel =
     confidence === "VERIFIED"

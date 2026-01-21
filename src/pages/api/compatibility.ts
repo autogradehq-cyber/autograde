@@ -3,14 +3,17 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import sgMail from "@sendgrid/mail";
 import type { UpgradeRecommendation, UpgradeIdea } from "./recommendations";
 
+export const config = {
+  runtime: "nodejs",
+};
+
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
 
-// IMPORTANT:
-// SENDGRID_FROM_EMAIL must be a VERIFIED sender in SendGrid (Single Sender or Domain Auth).
+// SENDGRID_FROM_EMAIL must be a VERIFIED sender in SendGrid
 const FROM_EMAIL =
   process.env.SENDGRID_FROM_EMAIL || "noreply@autogradehq.com";
 
-// Where YOU want to receive lead notifications (your real inbox)
+// Internal lead inbox (optional)
 const NOTIFY_EMAIL =
   process.env.SENDGRID_NOTIFY_EMAIL || process.env.SENDGRID_FROM_EMAIL || "";
 
@@ -18,23 +21,23 @@ const SITE_URL = process.env.SITE_URL || "https://autogradehq.com";
 
 if (SENDGRID_KEY) {
   sgMail.setApiKey(SENDGRID_KEY);
-} else {
-  console.warn(
-    "[/api/compatibility] Missing SENDGRID_API_KEY; emails will fail until configured."
-  );
 }
+
+type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
 type SuccessResponse = {
   ok: true;
   affiliateUrl: string;
-  vendor: "amazon" | "tirerack" | "realtruck";
+  vendor: AffiliateVendor;
   vendorLabel: "Amazon" | "Tire Rack" | "RealTruck";
   recommendation?: UpgradeRecommendation | null;
+
+  // new: explicit email status so frontend can message correctly
+  emailAttempted: boolean;
+  emailSent: boolean;
 };
 
 type ErrorResponse = { ok: false; error: string };
-
-type AffiliateVendor = "amazon" | "tirerack" | "realtruck";
 
 const chooseVendor = (text: string): AffiliateVendor => {
   const t = (text || "").toLowerCase();
@@ -59,7 +62,11 @@ const chooseVendor = (text: string): AffiliateVendor => {
 };
 
 const vendorLabelFromVendor = (vendor: AffiliateVendor) =>
-  vendor === "tirerack" ? "Tire Rack" : vendor === "realtruck" ? "RealTruck" : "Amazon";
+  vendor === "tirerack"
+    ? "Tire Rack"
+    : vendor === "realtruck"
+    ? "RealTruck"
+    : "Amazon";
 
 const buildAffiliateUrl = (vendor: AffiliateVendor, keywords: string): string => {
   const params = new URLSearchParams();
@@ -72,7 +79,6 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Minimal HTML escaping to prevent broken markup or injection
 function escapeHtml(input: unknown) {
   const s = String(input ?? "");
   return s
@@ -104,14 +110,13 @@ export default async function handler(
     model,
     trim,
     upgrade,
-    email, // OPTIONAL now
+    email, // optional
     drivingStyle,
     budgetLevel,
     topPriority,
-    recommendation, // <-- NEW: full recommendation object from the client (optional)
+    recommendation, // optional full AI object
   } = req.body || {};
 
-  // Email is no longer required to show results on screen
   if (!year || !make || !model || !upgrade) {
     return res.status(400).json({
       ok: false,
@@ -119,7 +124,6 @@ export default async function handler(
     });
   }
 
-  // If email provided, validate it (but do not block if omitted)
   const emailString = String(email || "").trim();
   if (emailString && !isValidEmail(emailString)) {
     return res.status(400).json({
@@ -130,14 +134,11 @@ export default async function handler(
 
   const vehicleLine = `${year} ${make} ${model}${trim ? ` ${trim}` : ""}`.trim();
 
-  // Build affiliate link (generic)
   const keywords = `${year} ${make} ${model} ${upgrade}`.trim();
   const primaryVendor = chooseVendor(String(upgrade));
   const affiliateUrl = buildAffiliateUrl(primaryVendor, keywords);
-
   const vendorLabel = vendorLabelFromVendor(primaryVendor);
 
-  // Prepare option links if we have AI ideas
   const ideas: UpgradeIdea[] = Array.isArray(recommendation?.recommendedUpgradeIdeas)
     ? recommendation.recommendedUpgradeIdeas
     : [];
@@ -176,7 +177,6 @@ export default async function handler(
         .join("")
     : "";
 
-  // ---------- TEXT VERSION (fallback) ----------
   const fitmentScore = safeClampScore(recommendation?.fitmentConfidence);
   const valueScore = safeClampScore(recommendation?.valueScore);
 
@@ -191,7 +191,6 @@ export default async function handler(
   if (drivingStyle) textLines.push(`• Driving style: ${drivingStyle}`);
   if (budgetLevel) textLines.push(`• Budget level: ${budgetLevel}`);
   if (topPriority) textLines.push(`• Top priority: ${topPriority}`);
-
   if (fitmentScore !== null) textLines.push(`• Fitment confidence: ${fitmentScore}/100`);
   if (valueScore !== null) textLines.push(`• Value score: ${valueScore}/100`);
 
@@ -217,10 +216,8 @@ export default async function handler(
   }
 
   textLines.push("", `Run another check: ${SITE_URL}/compatibility`);
-
   const textBody = textLines.join("\n");
 
-  // Escape dynamic values for HTML
   const vehicleLineHtml = escapeHtml(vehicleLine);
   const upgradeHtml = escapeHtml(upgrade);
   const drivingStyleHtml = escapeHtml(drivingStyle);
@@ -233,7 +230,6 @@ export default async function handler(
     recommendation?.shortExplanation || recommendation?.overview || ""
   );
 
-  // ---------- HTML VERSION ----------
   const htmlBody = `
   <div style="background-color:#020617; padding:24px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
@@ -245,23 +241,12 @@ export default async function handler(
                 <table role="presentation" cellspacing="0" cellpadding="0" width="100%">
                   <tr>
                     <td>
-                      <table role="presentation" cellspacing="0" cellpadding="0">
-                        <tr>
-                          <td style="padding-right:8px;">
-                            <div style="width:28px; height:28px; border-radius:8px; background:#0ea5e9; display:inline-flex; align-items:center; justify-content:center;">
-                              <span style="font-weight:700; font-size:16px; color:#020617; line-height:1;">A</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:#e2e8f0;">
-                              AUTOGRADEHQ
-                            </div>
-                            <div style="font-size:11px; color:#64748b;">
-                              AI-Powered Upgrade Advisor
-                            </div>
-                          </td>
-                        </tr>
-                      </table>
+                      <div style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:#e2e8f0;">
+                        AUTOGRADEHQ
+                      </div>
+                      <div style="font-size:11px; color:#64748b;">
+                        AI-Powered Upgrade Advisor
+                      </div>
                     </td>
                     <td align="right" style="font-size:11px; color:#64748b;">
                       <a href="${SITE_URL}" style="color:#22c4ff; text-decoration:none;">autogradehq.com</a>
@@ -405,29 +390,32 @@ export default async function handler(
   </div>
   `;
 
-  try {
-    // Only send email if user provided a valid email
-    if (emailString) {
-      if (!SENDGRID_KEY) {
-        return res.status(500).json({
-          ok: false,
-          error:
-            "Email service is not configured. Please try again later or contact support.",
-        });
-      }
+  // --- Email sending is BEST EFFORT ---
+  // We will NEVER fail the API response solely because SendGrid failed.
+  let emailAttempted = false;
+  let emailSent = false;
 
-      // 1) Customer email (optional)
-      await sgMail.send({
-        to: emailString,
-        from: FROM_EMAIL,
-        replyTo: NOTIFY_EMAIL || FROM_EMAIL,
-        subject: `Your AutoGradeHQ compatibility breakdown – ${vehicleLine}`,
-        text: textBody,
-        html: htmlBody,
-      });
+  try {
+    // Customer email (optional)
+    if (emailString) {
+      emailAttempted = true;
+
+      if (!SENDGRID_KEY) {
+        console.error("[/api/compatibility] SENDGRID_API_KEY missing; cannot send customer email.");
+      } else {
+        await sgMail.send({
+          to: emailString,
+          from: FROM_EMAIL,
+          replyTo: NOTIFY_EMAIL || FROM_EMAIL,
+          subject: `Your AutoGradeHQ compatibility breakdown – ${vehicleLine}`,
+          text: textBody,
+          html: htmlBody,
+        });
+        emailSent = true;
+      }
     }
 
-    // 2) Internal notification (optional; only if NOTIFY_EMAIL is set & valid)
+    // Internal notification (optional)
     if (NOTIFY_EMAIL && isValidEmail(NOTIFY_EMAIL)) {
       await sgMail.send({
         to: NOTIFY_EMAIL,
@@ -457,18 +445,25 @@ Ideas count: ${ideas.length}
       vendor: primaryVendor,
       vendorLabel,
       recommendation: recommendation ?? null,
+      emailAttempted,
+      emailSent,
     });
   } catch (err: any) {
     const sgDetails =
       err?.response?.body?.errors ? JSON.stringify(err.response.body.errors) : "";
 
-    console.error("[/api/compatibility] Error sending email:", err);
+    console.error("[/api/compatibility] SendGrid error:", err);
     if (sgDetails) console.error("[/api/compatibility] SendGrid details:", sgDetails);
 
-    return res.status(500).json({
-      ok: false,
-      error:
-        "There was a problem sending your breakdown email. Please try again in a moment.",
+    // STILL return OK so the frontend can show results
+    return res.status(200).json({
+      ok: true,
+      affiliateUrl,
+      vendor: primaryVendor,
+      vendorLabel,
+      recommendation: recommendation ?? null,
+      emailAttempted,
+      emailSent: false,
     });
   }
 }
