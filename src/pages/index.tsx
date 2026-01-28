@@ -28,6 +28,43 @@ const HomePage: NextPage = () => {
 
   return (
   <>
+  <section className="mx-auto max-w-5xl px-6 py-14">
+  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-8 shadow-sm">
+    <div className="max-w-2xl">
+      <h1 className="text-3xl font-semibold tracking-tight text-slate-100">
+        Find the best upgrade for your vehicle — fast.
+      </h1>
+
+      <p className="mt-3 text-base leading-relaxed text-slate-300">
+        Skip the research and reviews. AutoGrade gives you a clear recommendation,
+        what to watch out for, and where to shop — in about 20 seconds.
+      </p>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        {/* PRIMARY CTA */}
+        <Link
+          href="/best-upgrades"
+          className="inline-flex w-full items-center justify-center rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-offset-2 focus:ring-offset-slate-950 sm:w-auto"
+        >
+          Get my best upgrade
+        </Link>
+
+        {/* SECONDARY CTA */}
+        <Link
+          href="/compatibility"
+          className="inline-flex w-full items-center justify-center rounded-xl border border-slate-800 bg-transparent px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-600 focus:ring-offset-2 focus:ring-offset-slate-950 sm:w-auto"
+        >
+          Compatibility check
+        </Link>
+      </div>
+
+      <div className="mt-4 text-xs text-slate-400">
+        No account needed. Free to use. (Affiliate links may support the site.)
+      </div>
+    </div>
+  </div>
+</section>
+
     <Head>
       <title>AutoGradeHQ – Smarter vehicle upgrades before you buy</title>
       <meta
