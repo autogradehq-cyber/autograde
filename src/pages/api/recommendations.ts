@@ -2,10 +2,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 // Keep this in sync with the frontend usage in compatibility.tsx
 export type UpgradeIdea = {
   name: string;
@@ -36,19 +32,25 @@ function pickFirst(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function clampScore(n: any, fallback = 50) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(x)));
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
-  // Always declare allowed methods (also helpful for debugging)
+  // Always declare allowed methods (helpful for debugging)
   res.setHeader("Allow", ["POST", "GET", "OPTIONS"]);
 
-  // Handle preflight cleanly (can happen depending on browser/request headers)
+  // Preflight
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
 
-  // Accept POST (intended) and GET (failsafe)
+  // Only accept POST (intended) + GET (failsafe for quick testing)
   if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
@@ -88,11 +90,26 @@ export default async function handler(
     });
   }
 
-  // Hard fail early if key missing (prevents confusing downstream errors)
-  if (!process.env.OPENAI_API_KEY) {
+  // IMPORTANT:
+  // Do NOT initialize OpenAI client at module scope. If the env var is missing
+  // in Vercel, the SDK may throw during import/init and your route becomes a /500 HTML page.
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     return res.status(500).json({
       ok: false,
-      error: "Server misconfiguration: OPENAI_API_KEY is missing.",
+      error:
+        "Server misconfiguration: OPENAI_API_KEY is missing in the deployment environment.",
+    });
+  }
+
+  let openai: OpenAI;
+  try {
+    openai = new OpenAI({ apiKey });
+  } catch (e) {
+    console.error("[recommendations] OpenAI client init failed:", e);
+    return res.status(500).json({
+      ok: false,
+      error: "Server misconfiguration: failed to initialize OpenAI client.",
     });
   }
 
@@ -183,9 +200,7 @@ export default async function handler(
     });
 
     const raw = completion.choices[0]?.message?.content;
-    if (!raw) {
-      throw new Error("No content returned from model");
-    }
+    if (!raw) throw new Error("No content returned from model");
 
     let parsed: any;
     try {
@@ -197,15 +212,12 @@ export default async function handler(
 
     // Some models might nest under { recommendation: { ... } }
     const rec: UpgradeRecommendation =
-      parsed.recommendation ?? parsed ?? ({} as any);
+      (parsed?.recommendation ?? parsed ?? {}) as UpgradeRecommendation;
 
-    // Minimal sanity checks with fallbacks
-    const clamp = (n: any) =>
-      Math.max(0, Math.min(100, Number.isFinite(Number(n)) ? Number(n) : 50));
-
-    rec.fitmentConfidence = clamp(rec.fitmentConfidence);
-    rec.valueScore = clamp(rec.valueScore);
-    rec.performanceImpact = clamp(rec.performanceImpact);
+    // Minimal sanity checks + fallbacks
+    rec.fitmentConfidence = clampScore(rec.fitmentConfidence);
+    rec.valueScore = clampScore(rec.valueScore);
+    rec.performanceImpact = clampScore(rec.performanceImpact);
 
     if (!rec.riskLevel || !["low", "medium", "high"].includes(rec.riskLevel)) {
       rec.riskLevel = "medium";
@@ -215,30 +227,23 @@ export default async function handler(
       rec.priceBand = defaultPriceBand;
     }
 
-    if (!Array.isArray(rec.potentialIssues)) {
-      rec.potentialIssues = [];
-    }
+    if (!Array.isArray(rec.potentialIssues)) rec.potentialIssues = [];
+    if (!Array.isArray(rec.recommendedUpgradeIdeas)) rec.recommendedUpgradeIdeas = [];
 
-    if (!Array.isArray(rec.recommendedUpgradeIdeas)) {
-      rec.recommendedUpgradeIdeas = [];
-    } else {
-      rec.recommendedUpgradeIdeas = rec.recommendedUpgradeIdeas.map(
-        (idea: any): UpgradeIdea => ({
-          name: idea.name || "Upgrade direction",
-          type: idea.type || "upgrade",
-          summary:
-            idea.summary ||
-            "High-level upgrade direction based on your vehicle and goals.",
-          priceBand:
-            ["budget", "midrange", "premium"].includes(idea.priceBand) && idea.priceBand
-              ? idea.priceBand
-              : defaultPriceBand,
-          examplePartHint:
-            idea.examplePartHint ||
-            "Example style and size of part to consider; still verify exact fitment.",
-        })
-      );
-    }
+    rec.recommendedUpgradeIdeas = rec.recommendedUpgradeIdeas.map((idea: any) => ({
+      name: idea?.name || "Upgrade direction",
+      type: idea?.type || "upgrade",
+      summary:
+        idea?.summary ||
+        "High-level upgrade direction based on your vehicle and goals.",
+      priceBand:
+        ["budget", "midrange", "premium"].includes(idea?.priceBand) && idea?.priceBand
+          ? idea.priceBand
+          : defaultPriceBand,
+      examplePartHint:
+        idea?.examplePartHint ||
+        "Example style and size of part to consider; still verify exact fitment.",
+    }));
 
     rec.overview =
       rec.overview ||

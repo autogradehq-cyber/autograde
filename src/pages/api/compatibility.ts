@@ -9,6 +9,10 @@ export const config = {
 
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
 
+// MASTER SWITCH: only send emails when explicitly enabled.
+// In Vercel Production set EMAIL_ENABLED=false for launch.
+const EMAIL_ENABLED = process.env.EMAIL_ENABLED === "true";
+
 // SENDGRID_FROM_EMAIL must be a VERIFIED sender in SendGrid
 const FROM_EMAIL =
   process.env.SENDGRID_FROM_EMAIL || "noreply@autogradehq.com";
@@ -32,7 +36,7 @@ type SuccessResponse = {
   vendorLabel: "Amazon" | "Tire Rack" | "RealTruck";
   recommendation?: UpgradeRecommendation | null;
 
-  // new: explicit email status so frontend can message correctly
+  // explicit email status so frontend can message correctly
   emailAttempted: boolean;
   emailSent: boolean;
 };
@@ -391,9 +395,24 @@ export default async function handler(
   `;
 
   // --- Email sending is BEST EFFORT ---
-  // We will NEVER fail the API response solely because SendGrid failed.
+  // Launch-safe behavior:
+  // - If EMAIL_ENABLED is not "true", we SKIP sending entirely.
+  // - We NEVER fail the API response due to SendGrid.
   let emailAttempted = false;
   let emailSent = false;
+
+  // Fast path: email disabled → return OK immediately (no SendGrid calls)
+  if (!EMAIL_ENABLED) {
+    return res.status(200).json({
+      ok: true,
+      affiliateUrl,
+      vendor: primaryVendor,
+      vendorLabel,
+      recommendation: recommendation ?? null,
+      emailAttempted: false,
+      emailSent: false,
+    });
+  }
 
   try {
     // Customer email (optional)
@@ -401,7 +420,9 @@ export default async function handler(
       emailAttempted = true;
 
       if (!SENDGRID_KEY) {
-        console.error("[/api/compatibility] SENDGRID_API_KEY missing; cannot send customer email.");
+        console.error(
+          "[/api/compatibility] EMAIL_ENABLED=true but SENDGRID_API_KEY missing; cannot send customer email."
+        );
       } else {
         await sgMail.send({
           to: emailString,
@@ -417,11 +438,16 @@ export default async function handler(
 
     // Internal notification (optional)
     if (NOTIFY_EMAIL && isValidEmail(NOTIFY_EMAIL)) {
-      await sgMail.send({
-        to: NOTIFY_EMAIL,
-        from: FROM_EMAIL,
-        subject: "New AutoGradeHQ compatibility lead",
-        text: `New compatibility check request:
+      if (!SENDGRID_KEY) {
+        console.error(
+          "[/api/compatibility] EMAIL_ENABLED=true but SENDGRID_API_KEY missing; cannot send internal notification."
+        );
+      } else {
+        await sgMail.send({
+          to: NOTIFY_EMAIL,
+          from: FROM_EMAIL,
+          subject: "New AutoGradeHQ compatibility lead",
+          text: `New compatibility check request:
 
 Vehicle: ${vehicleLine}
 Upgrade: ${upgrade}
@@ -436,7 +462,8 @@ Affiliate URL: ${affiliateUrl}
 Has AI recommendation: ${recommendation ? "yes" : "no"}
 Ideas count: ${ideas.length}
 `,
-      });
+        });
+      }
     }
 
     return res.status(200).json({
